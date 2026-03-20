@@ -1,3 +1,10 @@
+.ra-style-section-title {
+	margin: 1em 0 0.35em;
+	font-size: var(--font-ui-small);
+	font-weight: 600;
+	color: var(--text-normal);
+}
+
 .ra-controls,
 .ra-node-panel,
 .ra-style-panel,

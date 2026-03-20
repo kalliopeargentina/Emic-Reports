@@ -1,6 +1,6 @@
 import { normalizePath } from "obsidian";
 import type { App } from "obsidian";
-import { createAcademicExportTemplate } from "../domain/style-template";
+import { createAcademicExportTemplate, normalizeStyleTemplate } from "../domain/style-template";
 import {
 	type SavedStyleTemplateFile,
 	SAVED_STYLE_TEMPLATE_VERSION,
@@ -73,7 +73,10 @@ export class TemplateRepository {
 			const raw = await this.app.vault.adapter.read(path);
 			const parsed = JSON.parse(raw) as SavedStyleTemplateFile;
 			if (parsed.version !== SAVED_STYLE_TEMPLATE_VERSION) return null;
-			return parsed;
+			return {
+				...parsed,
+				styleTemplate: normalizeStyleTemplate(parsed.styleTemplate),
+			};
 		} catch {
 			return null;
 		}

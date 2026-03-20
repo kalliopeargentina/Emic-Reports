@@ -1,14 +1,42 @@
 import type { ReportProject } from "../domain/report-project";
+import {
+	mergePrintRules,
+	mergeStyleTokens,
+	type HeadingNumberingMode,
+} from "../domain/style-template";
 import { PageSizeResolver } from "./page-size-resolver";
 
 export class CssTemplateEngine {
 	private pageSizeResolver = new PageSizeResolver();
 
 	build(project: ReportProject): string {
-		const t = project.styleTemplate.tokens;
+		const t = mergeStyleTokens(project.styleTemplate.tokens);
+		const pr = mergePrintRules(project.styleTemplate.printRules);
 		const pageSize = this.pageSizeResolver.resolve(project);
-		const numberingCss = this.buildHeadingNumberingCss(project.styleTemplate.printRules.headingNumbering);
+		const numberingCss = this.buildHeadingNumberingCss(pr.headingNumbering);
 		const backgroundCss = this.buildBackgroundCss(project);
+		const tableBreak = pr.tableBreakBehavior === "avoid" ? "avoid" : "auto";
+		const preBreak = pr.prePageBreakInside === "avoid" ? "avoid" : "auto";
+		const hrBreak = pr.hrAsPageBreak ? "always" : "auto";
+		const captionStyle =
+			pr.imageCaptionStyle === "centered-small"
+				? `text-align: center; font-size: ${t.captionFontSize}pt; margin-bottom: ${t.captionMarginBottom}px;`
+				: `font-size: ${t.captionFontSize}pt;`;
+
+		const listBulletCss = t.listCustomBullet
+			? `
+.ra-render-frame ul li {
+	list-style-type: none !important;
+	position: relative !important;
+}
+.ra-render-frame ul li::before {
+	content: '•' !important;
+	position: absolute !important;
+	left: ${t.listBulletOffset} !important;
+	top: -0.05em !important;
+	font-size: 1.1em !important;
+}`
+			: "";
 
 		return `
 :root {
@@ -26,6 +54,8 @@ export class CssTemplateEngine {
 	--ra-page-margin-right: ${t.pageMarginRight};
 	--ra-page-margin-bottom: ${t.pageMarginBottom};
 	--ra-page-margin-left: ${t.pageMarginLeft};
+	--ra-code-bg: ${t.codeBlockBackground};
+	--ra-code-normal: ${t.codeNormalColor};
 }
 
 .ra-render-frame {
@@ -33,37 +63,183 @@ export class CssTemplateEngine {
 	font-family: var(--ra-font-body);
 	font-size: var(--ra-body-size);
 	line-height: var(--ra-body-line-height);
+	tab-size: ${t.tabSize} !important;
+	--code-background: ${t.codeBlockBackground} !important;
+	--code-normal: ${t.codeNormalColor} !important;
 	background: #ffffff !important;
 	-webkit-print-color-adjust: exact;
 	print-color-adjust: exact;
 }
 
-.ra-render-frame p {
-	margin-top: var(--ra-p-spacing);
-	text-align: justify;
+.ra-render-frame a:link,
+.ra-render-frame a:visited,
+.ra-render-frame a {
+	color: ${t.linkColor} !important;
+	text-decoration: ${t.linkUnderline ? "underline" : "none"} !important;
 }
 
-.ra-render-frame h1, .ra-render-frame h2, .ra-render-frame h3, .ra-render-frame h4, .ra-render-frame h5, .ra-render-frame h6 {
-	font-family: var(--ra-font-heading);
-	color: var(--ra-text);
+.ra-render-frame p {
+	font-family: var(--ra-font-body) !important;
+	font-size: ${t.fontSizeBody}pt !important;
+	text-align: ${t.paragraphTextAlign} !important;
+	line-height: ${t.lineHeightBody} !important;
+	margin-top: ${t.paragraphSpacing}px !important;
+}
+
+.ra-render-frame strong {
+	font-weight: bold !important;
+	color: ${t.strongColor} !important;
+}
+
+.ra-render-frame em {
+	font-style: italic !important;
+	color: ${t.emColor} !important;
+}
+
+.ra-render-frame h1,
+.ra-render-frame h2,
+.ra-render-frame h3,
+.ra-render-frame h4,
+.ra-render-frame h5,
+.ra-render-frame h6 {
+	font-family: var(--ra-font-heading) !important;
+	color: var(--ra-text) !important;
 	page-break-after: avoid;
 	page-break-inside: avoid;
-	margin-top: var(--ra-section-spacing);
+	font-weight: ${t.headingFontWeight} !important;
+	line-height: ${t.headingLineHeight} !important;
+	margin-bottom: ${t.headingMarginBottom}px !important;
+	padding-bottom: ${t.headingPaddingBottom}px !important;
+	margin-top: ${t.headingMarginTop}px !important;
 }
 
-.ra-render-frame h1 { font-size: ${t.h1Size}pt; }
-.ra-render-frame h2 { font-size: ${t.h2Size}pt; }
-.ra-render-frame h3 { font-size: ${t.h3Size}pt; }
-.ra-render-frame h4 { font-size: ${t.h4Size}pt; }
-.ra-render-frame h5 { font-size: ${t.h5Size}pt; }
-.ra-render-frame h6 { font-size: ${t.h6Size}pt; }
-
-.ra-render-frame code, .ra-render-frame pre {
-	font-family: var(--ra-font-mono);
+.ra-render-frame h1 {
+	font-family: ${t.h1FontFamily} !important;
+	text-align: ${t.h1TextAlign} !important;
+	font-size: ${t.h1Size}pt !important;
+	font-weight: ${t.h1FontWeight === "normal" ? "normal" : "bold"} !important;
+	margin-top: 0 !important;
 }
 
-.ra-render-frame img, .ra-render-frame svg, .ra-render-frame table {
-	page-break-inside: avoid;
+.ra-render-frame h6 {
+	font-family: ${t.h6FontFamily} !important;
+	text-align: ${t.h6TextAlign} !important;
+	font-size: ${t.h6Size}pt !important;
+	font-weight: ${t.h6FontWeight === "normal" ? "normal" : "bold"} !important;
+	margin-top: ${t.h6MarginTop}px !important;
+}
+
+.ra-render-frame h2 { font-size: ${t.h2Size}pt !important; }
+.ra-render-frame h3 { font-size: ${t.h3Size}pt !important; }
+.ra-render-frame h4 { font-size: ${t.h4Size}pt !important; }
+.ra-render-frame h5 { font-size: ${t.h5Size}pt !important; }
+
+.ra-render-frame del {
+	font-family: var(--ra-font-body) !important;
+	display: block !important;
+	text-align: center !important;
+	font-size: ${t.creditsFontSize}pt !important;
+	text-decoration: none !important;
+	margin-top: ${t.creditsMarginTop}px !important;
+	padding-bottom: ${t.creditsPaddingBottom}px !important;
+}
+
+.ra-render-frame pre {
+	background-color: ${t.preBackground} !important;
+	border-style: ${t.preBorderStyle === "none" ? "none" : t.preBorderStyle} !important;
+	border-radius: ${t.preBorderRadius}px !important;
+	border-width: ${t.preBorderWidth} !important;
+	border-color: ${t.preBorderColor} !important;
+	line-height: ${t.preLineHeight} !important;
+	page-break-inside: ${preBreak} !important;
+}
+
+.ra-render-frame code {
+	font-family: var(--ra-font-mono) !important;
+	font-size: ${t.codeFontSize}pt !important;
+	color: ${t.codeInlineColor} !important;
+}
+
+.ra-render-frame mjx-math {
+	font-size: ${t.mathScalePercent}% !important;
+}
+
+.ra-render-frame math-block {
+	page-break-before: avoid !important;
+}
+
+.ra-render-frame svg,
+.ra-render-frame img {
+	display: block !important;
+	page-break-inside: avoid !important;
+	page-break-after: avoid !important;
+	margin: ${t.imageMarginTop}px ${t.imageMarginHorizontal} ${t.imageMarginBottom}px !important;
+}
+
+.ra-render-frame figcaption {
+	font-family: var(--ra-font-body) !important;
+	text-align: center;
+	${captionStyle}
+}
+
+.ra-render-frame table,
+.ra-render-frame pre {
+	page-break-inside: ${tableBreak} !important;
+}
+
+.ra-render-frame table {
+	font-family: ${t.tableFontFamily} !important;
+	font-size: ${t.tableFontSize}pt !important;
+	text-align: ${t.tableTextAlign} !important;
+	margin: ${t.tableMarginTop}px auto ${t.tableMarginBottom}px !important;
+	border-top: 1px solid ${t.tableBorderTopColor} !important;
+	border-bottom: 1px solid ${t.tableBorderBottomColor} !important;
+}
+
+.ra-render-frame th {
+	color: var(--ra-text) !important;
+	font-weight: ${t.thFontWeight === "normal" ? "normal" : "bold"} !important;
+	border: none !important;
+	border-bottom: 1px solid ${t.thBorderBottomColor} !important;
+	padding: ${t.tableCellPadding} !important;
+}
+
+.ra-render-frame td {
+	border: none !important;
+	padding: ${t.tableCellPadding} !important;
+}
+
+.ra-render-frame ul,
+.ra-render-frame ol,
+.ra-render-frame dl {
+	page-break-before: avoid !important;
+	font-family: var(--ra-font-body) !important;
+	font-size: ${t.listFontSize}pt !important;
+	line-height: ${t.listLineHeight} !important;
+	margin-top: 0 !important;
+	padding-top: 0 !important;
+}
+
+${listBulletCss}
+
+.ra-render-frame hr {
+	border: none !important;
+	border-top: 0 solid lightgray !important;
+	page-break-after: ${hrBreak} !important;
+}
+
+.ra-render-frame blockquote {
+	display: block !important;
+	text-align: ${t.blockquoteTextAlign} !important;
+	font-size: ${t.blockquoteFontSize}pt !important;
+	color: var(--ra-text) !important;
+	border: none !important;
+	padding: 0 !important;
+	margin: ${t.blockquoteMarginY}px auto !important;
+}
+
+.ra-render-frame .mermaid {
+	color: ${t.mermaidColor} !important;
 }
 
 .ra-cover-page {
@@ -121,25 +297,36 @@ ${backgroundCss}
 `.trim();
 	}
 
-	private buildHeadingNumberingCss(mode: "none" | "h2-h4" | "h1-h6"): string {
+	private buildHeadingNumberingCss(mode: HeadingNumberingMode): string {
+		/** Match academic CSS: dot, space, then NBSP after section numbers */
+		const nbsp = "\u00A0";
+		const tail = `". ${nbsp}"`;
 		if (mode === "none") return "";
 		if (mode === "h2-h4") {
 			return `
 .ra-render-frame { counter-reset: h2counter h3counter h4counter; }
 .ra-render-frame h2 { counter-increment: h2counter; counter-reset: h3counter; }
-.ra-render-frame h2::before { content: counter(h2counter) ". "; }
+.ra-render-frame h2::before { content: counter(h2counter) ${tail}; }
 .ra-render-frame h3 { counter-increment: h3counter; counter-reset: h4counter; }
-.ra-render-frame h3::before { content: counter(h2counter) "." counter(h3counter) ". "; }
+.ra-render-frame h3::before { content: counter(h2counter) "." counter(h3counter) ${tail}; }
 .ra-render-frame h4 { counter-increment: h4counter; }
-.ra-render-frame h4::before { content: counter(h2counter) "." counter(h3counter) "." counter(h4counter) ". "; }
+.ra-render-frame h4::before { content: counter(h2counter) "." counter(h3counter) "." counter(h4counter) ${tail}; }
 `.trim();
 		}
 		return `
 .ra-render-frame { counter-reset: h1counter h2counter h3counter h4counter h5counter h6counter; }
 .ra-render-frame h1 { counter-increment: h1counter; counter-reset: h2counter; }
-.ra-render-frame h1::before { content: counter(h1counter) ". "; }
+.ra-render-frame h1::before { content: counter(h1counter) ${tail}; }
 .ra-render-frame h2 { counter-increment: h2counter; counter-reset: h3counter; }
-.ra-render-frame h2::before { content: counter(h1counter) "." counter(h2counter) ". "; }
+.ra-render-frame h2::before { content: counter(h1counter) "." counter(h2counter) ${tail}; }
+.ra-render-frame h3 { counter-increment: h3counter; counter-reset: h4counter; }
+.ra-render-frame h3::before { content: counter(h1counter) "." counter(h2counter) "." counter(h3counter) ${tail}; }
+.ra-render-frame h4 { counter-increment: h4counter; counter-reset: h5counter; }
+.ra-render-frame h4::before { content: counter(h1counter) "." counter(h2counter) "." counter(h3counter) "." counter(h4counter) ${tail}; }
+.ra-render-frame h5 { counter-increment: h5counter; counter-reset: h6counter; }
+.ra-render-frame h5::before { content: counter(h1counter) "." counter(h2counter) "." counter(h3counter) "." counter(h4counter) "." counter(h5counter) ${tail}; }
+.ra-render-frame h6 { counter-increment: h6counter; }
+.ra-render-frame h6::before { content: counter(h1counter) "." counter(h2counter) "." counter(h3counter) "." counter(h4counter) "." counter(h5counter) "." counter(h6counter) ${tail}; }
 `.trim();
 	}
 
