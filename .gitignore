@@ -15,6 +15,9 @@ main.js
 # Exclude sourcemaps
 *.map
 
+# Distribution artifacts
+dist/
+
 # obsidian
 data.json
 
