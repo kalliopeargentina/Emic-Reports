@@ -14,6 +14,7 @@ export class ReportPreviewModal extends Modal {
 		app: App,
 		private project: ReportProject,
 		private previewHtml: string,
+		private previewCss = "",
 	) {
 		super(app);
 	}
@@ -22,6 +23,10 @@ export class ReportPreviewModal extends Modal {
 		this.titleEl.setText("Report preview");
 		this.contentEl.empty();
 		this.contentEl.addClass("ra-preview-modal");
+
+		if (this.previewCss.trim()) {
+			this.contentEl.createEl("style", { text: this.previewCss });
+		}
 
 		const controlsEl = this.contentEl.createDiv({ cls: "ra-preview-controls" });
 		new Setting(controlsEl)

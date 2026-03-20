@@ -23,6 +23,8 @@ export class CssTemplateEngine {
 				? `text-align: center; font-size: ${t.captionFontSize}pt; margin-bottom: ${t.captionMarginBottom}px;`
 				: `font-size: ${t.captionFontSize}pt;`;
 
+		const calloutCss = this.buildCalloutCss();
+
 		const listBulletCss = t.listCustomBullet
 			? `
 .ra-render-frame ul li {
@@ -228,7 +230,7 @@ ${listBulletCss}
 	page-break-after: ${hrBreak} !important;
 }
 
-.ra-render-frame blockquote {
+.ra-render-frame blockquote:not(.callout) {
 	display: block !important;
 	text-align: ${t.blockquoteTextAlign} !important;
 	font-size: ${t.blockquoteFontSize}pt !important;
@@ -237,6 +239,8 @@ ${listBulletCss}
 	padding: 0 !important;
 	margin: ${t.blockquoteMarginY}px auto !important;
 }
+
+${calloutCss}
 
 .ra-render-frame .mermaid {
 	color: ${t.mermaidColor} !important;
@@ -346,6 +350,114 @@ ${backgroundCss}
 	background-size: ${project.backgroundImage.fitMode === "repeat" ? "auto" : project.backgroundImage.fitMode};
 	background-repeat: ${project.backgroundImage.fitMode === "repeat" ? "repeat" : "no-repeat"};
 	opacity: ${project.backgroundImage.opacity};
+}
+`.trim();
+	}
+
+	/**
+	 * Obsidian callouts render as `.callout[data-callout="type"]` but export HTML does not include
+	 * app.css — we mirror default theme colors and borders so print/PDF preview shows colored boxes.
+	 */
+	private buildCalloutCss(): string {
+		const rgbByType: Record<string, string> = {
+			note: "68, 138, 255",
+			abstract: "0, 176, 255",
+			summary: "0, 176, 255",
+			tldr: "0, 176, 255",
+			info: "0, 184, 212",
+			todo: "68, 138, 255",
+			tip: "0, 191, 165",
+			hint: "0, 191, 165",
+			important: "0, 191, 165",
+			success: "0, 200, 83",
+			check: "0, 200, 83",
+			done: "0, 200, 83",
+			question: "255, 193, 7",
+			help: "255, 193, 7",
+			faq: "255, 193, 7",
+			warning: "255, 152, 0",
+			caution: "255, 152, 0",
+			attention: "255, 152, 0",
+			failure: "244, 67, 54",
+			fail: "244, 67, 54",
+			missing: "244, 67, 54",
+			danger: "255, 82, 82",
+			error: "255, 82, 82",
+			bug: "244, 67, 54",
+			example: "124, 77, 255",
+			quote: "158, 158, 158",
+			cite: "158, 158, 158",
+		};
+
+		const perType = Object.entries(rgbByType)
+			.map(
+				([k, v]) =>
+					`.ra-render-frame .callout[data-callout="${k}"] { --ra-callout-color: ${v}; }`,
+			)
+			.join("\n");
+
+		return `
+${perType}
+
+.ra-render-frame .callout {
+	--ra-callout-color: 68, 138, 255;
+	background-color: rgba(var(--ra-callout-color), 0.12) !important;
+	border: 1px solid rgba(var(--ra-callout-color), 0.35) !important;
+	border-left: 4px solid rgb(var(--ra-callout-color)) !important;
+	border-radius: 6px !important;
+	padding: 0 !important;
+	margin: 1em 0 !important;
+	overflow: hidden !important;
+	color: var(--ra-text) !important;
+	-webkit-print-color-adjust: exact !important;
+	print-color-adjust: exact !important;
+}
+
+.ra-render-frame .callout .callout-title {
+	display: flex !important;
+	align-items: center !important;
+	gap: 8px !important;
+	padding: 8px 14px !important;
+	font-weight: 600 !important;
+	font-size: 0.82em !important;
+	text-transform: uppercase !important;
+	letter-spacing: 0.04em !important;
+	color: rgb(var(--ra-callout-color)) !important;
+	background-color: rgba(var(--ra-callout-color), 0.1) !important;
+	border-bottom: 1px solid rgba(var(--ra-callout-color), 0.22) !important;
+}
+
+.ra-render-frame .callout .callout-title-inner {
+	flex: 1 !important;
+}
+
+.ra-render-frame .callout .callout-icon {
+	flex-shrink: 0 !important;
+	width: 1.1em !important;
+	height: 1.1em !important;
+	opacity: 0.85 !important;
+}
+
+.ra-render-frame .callout .callout-icon svg {
+	width: 100% !important;
+	height: 100% !important;
+}
+
+.ra-render-frame .callout .callout-content {
+	padding: 10px 14px 12px !important;
+	font-size: var(--ra-body-size) !important;
+}
+
+.ra-render-frame .callout .callout-content > :first-child {
+	margin-top: 0 !important;
+}
+
+.ra-render-frame .callout .callout-content > :last-child {
+	margin-bottom: 0 !important;
+}
+
+.ra-render-frame .callout .callout-content p {
+	text-align: inherit !important;
 }
 `.trim();
 	}

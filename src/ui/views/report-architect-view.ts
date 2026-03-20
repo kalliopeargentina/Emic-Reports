@@ -223,7 +223,7 @@ export class ReportArchitectView extends ItemView {
 						this.plugin.cssTemplateEngine,
 						this.plugin.assetResolver,
 					);
-					new ReportPreviewModal(this.app, project, preview.html).open();
+					new ReportPreviewModal(this.app, project, preview.html, preview.css).open();
 				}),
 			)
 			.addButton((btn) =>

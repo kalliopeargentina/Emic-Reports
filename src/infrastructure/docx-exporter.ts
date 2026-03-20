@@ -8,6 +8,7 @@ import {
 	LevelFormat,
 	Packer,
 	Paragraph,
+	ShadingType,
 	Table,
 	TableCell,
 	TableRow,
@@ -37,6 +38,67 @@ type NumberingConfig = {
 	reference: string;
 	levels: NumberingLevelConfig[];
 };
+
+/** RGB strings "r, g, b" aligned with export callout CSS for consistent colors */
+const CALLOUT_RGB: Record<string, string> = {
+	note: "68, 138, 255",
+	abstract: "0, 176, 255",
+	summary: "0, 176, 255",
+	tldr: "0, 176, 255",
+	info: "0, 184, 212",
+	todo: "68, 138, 255",
+	tip: "0, 191, 165",
+	hint: "0, 191, 165",
+	important: "0, 191, 165",
+	success: "0, 200, 83",
+	check: "0, 200, 83",
+	done: "0, 200, 83",
+	question: "255, 193, 7",
+	help: "255, 193, 7",
+	faq: "255, 193, 7",
+	warning: "255, 152, 0",
+	caution: "255, 152, 0",
+	attention: "255, 152, 0",
+	failure: "244, 67, 54",
+	fail: "244, 67, 54",
+	missing: "244, 67, 54",
+	danger: "255, 82, 82",
+	error: "255, 82, 82",
+	bug: "244, 67, 54",
+	example: "124, 77, 255",
+	quote: "158, 158, 158",
+	cite: "158, 158, 158",
+};
+
+function parseRgbTriplet(rgb: string): [number, number, number] {
+	const parts = rgb.split(",").map((p) => Number(p.trim()));
+	const r = parts[0] ?? 68;
+	const g = parts[1] ?? 138;
+	const b = parts[2] ?? 255;
+	return [r, g, b];
+}
+
+function rgbToDocxHex(r: number, g: number, b: number): string {
+	return [r, g, b]
+		.map((c) => Math.max(0, Math.min(255, c)).toString(16).padStart(2, "0"))
+		.join("")
+		.toUpperCase();
+}
+
+function calloutFillHex(accentRgb: string): string {
+	const [r, g, b] = parseRgbTriplet(accentRgb);
+	/** ~12% tint toward accent (matches rgba(..., 0.12) over white) */
+	const t = 0.12;
+	const mix = (c: number) => Math.round(255 * (1 - t) + c * t);
+	return rgbToDocxHex(mix(r), mix(g), mix(b));
+}
+
+function calloutBorderHex(accentRgb: string): string {
+	const [r, g, b] = parseRgbTriplet(accentRgb);
+	const t = 0.35;
+	const mix = (c: number) => Math.round(255 * (1 - t) + c * t);
+	return rgbToDocxHex(mix(r), mix(g), mix(b));
+}
 
 export class DocxExporter {
 	constructor(private app: App) {}
@@ -128,6 +190,13 @@ export class DocxExporter {
 			if (table) {
 				output.push(table.table);
 				index = table.nextIndex;
+				continue;
+			}
+
+			const callout = this.tryParseCallout(lines, index, tokens);
+			if (callout) {
+				output.push(callout.table);
+				index = callout.nextIndex;
 				continue;
 			}
 
@@ -333,6 +402,119 @@ export class DocxExporter {
 				after: this.ptToTwips(tokens.codeBlockSpacingAfter),
 			},
 		});
+	}
+
+	/**
+	 * Obsidian callouts: first line `> [!type] Optional title`, then `> ...` body lines.
+	 * Renders as a single-row table with tinted background and accent left border (DOCX has no native callouts).
+	 */
+	private tryParseCallout(
+		lines: string[],
+		start: number,
+		tokens: StyleTokens,
+	): { table: Table; nextIndex: number } | null {
+		const firstRaw = lines[start] ?? "";
+		const first = firstRaw.trim();
+		const calloutMatch = /^>\s*\[!([^\]]+)\]\s*(.*)$/.exec(first);
+		if (!calloutMatch) return null;
+
+		let rawType = (calloutMatch[1] ?? "note").trim().toLowerCase().replace(/\s+/g, "-");
+		if (rawType.endsWith("-")) {
+			rawType = rawType.slice(0, -1);
+		}
+		let rest = (calloutMatch[2] ?? "").trim();
+		const foldPref = /^([+\-])\s*(.*)$/.exec(rest);
+		if (foldPref) {
+			rest = (foldPref[2] ?? "").trim();
+		}
+		const userTitle = rest;
+		const bodyLines: string[] = [];
+		let idx = start + 1;
+		while (idx < lines.length) {
+			const line = lines[idx] ?? "";
+			const cont = /^>\s?(.*)$/.exec(line);
+			if (!cont) break;
+			bodyLines.push(cont[1] ?? "");
+			idx += 1;
+		}
+
+		const rgbKey = CALLOUT_RGB[rawType] ? rawType : "note";
+		const rgb = CALLOUT_RGB[rgbKey] ?? CALLOUT_RGB.note ?? "68, 138, 255";
+		const [r, g, b] = parseRgbTriplet(rgb);
+		const accentHex = rgbToDocxHex(r, g, b);
+		const fillHex = calloutFillHex(rgb);
+		const borderHex = calloutBorderHex(rgb);
+
+		const typeLabel = rawType
+			.split(/[-_]/)
+			.filter(Boolean)
+			.map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+			.join(" ");
+		const titleText = userTitle || typeLabel || "Note";
+
+		const cellChildren: Paragraph[] = [
+			new Paragraph({
+				children: [
+					new TextRun({
+						text: titleText,
+						bold: true,
+						color: accentHex,
+						font: tokens.fontHeading,
+						size: this.ptToHalfPoint(Math.min(tokens.h4Size, tokens.fontSizeBody + 1)),
+					}),
+				],
+				spacing: { after: bodyLines.some((l) => l.trim()) ? this.ptToTwips(4) : this.ptToTwips(2) },
+			}),
+		];
+
+		for (const body of bodyLines) {
+			const trimmedBody = body.trim();
+			if (!trimmedBody) {
+				cellChildren.push(
+					new Paragraph({
+						children: [new TextRun({ text: "", color: this.toDocxColor(tokens.colorText) })],
+						spacing: { before: 0, after: 0 },
+					}),
+				);
+				continue;
+			}
+			cellChildren.push(
+				new Paragraph({
+					children: this.inlineRuns(trimmedBody, tokens),
+					alignment: this.toAlignment(tokens.paragraphTextAlign),
+					spacing: { before: 0, after: this.ptToTwips(Math.min(tokens.paragraphSpacing, 6)) },
+				}),
+			);
+		}
+
+		const thin = { style: BorderStyle.SINGLE, size: 1, color: borderHex } as const;
+		const accentEdge = { style: BorderStyle.SINGLE, size: 24, color: accentHex } as const;
+
+		const table = new Table({
+			rows: [
+				new TableRow({
+					children: [
+						new TableCell({
+							shading: {
+								fill: fillHex,
+								type: ShadingType.CLEAR,
+							},
+							borders: {
+								left: accentEdge,
+								top: thin,
+								right: thin,
+								bottom: thin,
+							},
+							margins: { top: 160, bottom: 160, left: 200, right: 160 },
+							children: cellChildren,
+						}),
+					],
+				}),
+			],
+			width: { size: 100, type: WidthType.PERCENTAGE },
+		});
+
+		return { table, nextIndex: idx };
 	}
 
 	private tryParseTable(
