@@ -2,8 +2,11 @@ import type { ReportProject } from "../domain/report-project";
 import type { DocxExporter } from "../infrastructure/docx-exporter";
 import type { MarkdownComposer } from "../infrastructure/markdown-composer";
 import type { LinkResolver } from "../infrastructure/link-resolver";
+import type { App, Component } from "obsidian";
 
 export async function exportReportDocx(
+	app: App,
+	component: Component,
 	project: ReportProject,
 	outputPath: string,
 	docxExporter: DocxExporter,

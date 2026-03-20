@@ -2,12 +2,13 @@ import { toBlob, toCanvas } from "html-to-image";
 import { Component, MarkdownRenderer, type App } from "obsidian";
 import {
 	contiguousUint8Array,
+	isAcceptableDiagramPng,
 	isValidPng,
-	pngIsSolidNearWhite,
-	pngLooksLikeCroppedDiagram,
+	pngIhdrSize,
 } from "./binary-image";
 import { waitForDomStable } from "./dom-settle";
 import { prepareDiagramSvgForRasterExport } from "./svg-inline-styles";
+import { svgExportDisplayDimensions } from "./svg-export-dims";
 import { findLargestSvgDeep, querySelectorDeep, waitForSvgOrCanvasDeep } from "./shadow-dom";
 
 /** Fence languages that Obsidian plugins typically turn into SVG/canvas (not plain code). */
@@ -27,19 +28,31 @@ const DIAGRAM_FENCE_LANGS = new Set([
 export function isPluginDiagramFenceLanguage(lang: string): boolean {
 	const l = lang.trim().toLowerCase();
 	if (!l) return false;
-	if (l === "mmd") return true;
 	if (DIAGRAM_FENCE_LANGS.has(l)) return true;
 	if (l.includes("emic") && (l.includes("chart") || l.includes("graph"))) return true;
 	return false;
 }
 
-function parseFenceOpenerLang(line: string): string {
+/** Exported for DOCX / fence instrumentation (must match docx line parsing). */
+export function parseFenceOpenerLang(line: string): string {
 	const t = line.trim();
 	const m = /^(`{3,}|~{3,})\s*(.*)$/.exec(t);
 	if (!m) return "";
 	const rest = (m[2] ?? "").trim();
 	if (!rest) return "";
 	return (rest.split(/\s+/)[0] ?? "").replace(/^[{}]+/, "");
+}
+
+const DOCX_MERMAID_INIT = "%%{init: {'flowchart': {'htmlLabels': false, 'curve': 'linear'}, 'sequence': {'useMaxWidth': false}}}%%";
+
+function buildFenceMarkdown(language: string, body: string): string {
+	const normalized = language.trim().toLowerCase();
+	if (normalized !== "mermaid") {
+		return "```" + language + "\n" + body + "\n```";
+	}
+	const trimmed = body.trimStart();
+	const withInit = trimmed.startsWith("%%{init:") ? body : `${DOCX_MERMAID_INIT}\n${body}`;
+	return "```" + language + "\n" + withInit + "\n```";
 }
 
 /** True if any fenced block uses a language we try to rasterize (Mermaid, charts, …). */
@@ -62,10 +75,7 @@ export function markdownHasPluginDiagramFence(markdown: string): boolean {
 
 /** Serialize the live SVG (with inlined styles) to PNG via canvas — avoids html-to-image SVG child styling gaps. */
 async function rasterizeLiveSvgToPng(svg: SVGSVGElement, maxWidthPx: number): Promise<Uint8Array | null> {
-	const bbox = svg.getBBox();
-	const rect = svg.getBoundingClientRect();
-	let w = Math.max(bbox.width || 0, rect.width || 0, 1);
-	let h = Math.max(bbox.height || 0, rect.height || 0, 1);
+	const { w, h } = svgExportDisplayDimensions(svg);
 	const scale = w > maxWidthPx ? maxWidthPx / w : 1;
 	const outW = Math.max(1, Math.round(w * scale));
 	const outH = Math.max(1, Math.round(h * scale));
@@ -101,9 +111,11 @@ async function rasterizeLiveSvgToPng(svg: SVGSVGElement, maxWidthPx: number): Pr
 }
 
 async function rasterizeSvgToPng(svg: SVGSVGElement, maxWidthPx: number): Promise<Uint8Array> {
-	const bbox = svg.getBBox();
-	let w = bbox.width || Number(svg.getAttribute("width")) || 400;
-	let h = bbox.height || Number(svg.getAttribute("height")) || 300;
+	let { w, h } = svgExportDisplayDimensions(svg);
+	const aw = Number(svg.getAttribute("width"));
+	const ah = Number(svg.getAttribute("height"));
+	if ((!Number.isFinite(w) || w <= 1) && Number.isFinite(aw) && aw > 0) w = aw;
+	if ((!Number.isFinite(h) || h <= 1) && Number.isFinite(ah) && ah > 0) h = ah;
 	if (!Number.isFinite(w) || w <= 0) w = 400;
 	if (!Number.isFinite(h) || h <= 0) h = 300;
 	const scale = w > maxWidthPx ? maxWidthPx / w : 1;
@@ -161,11 +173,15 @@ async function rasterizeCanvasToPng(canvas: HTMLCanvasElement, maxWidthPx: numbe
 	return new Uint8Array(await outBlob.arrayBuffer());
 }
 
-async function acceptDiagramPng(candidate: Uint8Array | null): Promise<Uint8Array | null> {
-	if (!candidate || !isValidPng(candidate) || candidate.byteLength < 200) return null;
-	if (pngLooksLikeCroppedDiagram(candidate)) return null;
-	if (await pngIsSolidNearWhite(candidate)) return null;
-	return contiguousUint8Array(candidate);
+function acceptDiagramPng(candidate: Uint8Array | null): Uint8Array | null {
+	if (!candidate || !isAcceptableDiagramPng(candidate)) return null;
+	return candidate;
+}
+
+function pngDimsBrief(candidate: Uint8Array | null): string {
+	if (!candidate) return "null";
+	const d = pngIhdrSize(candidate);
+	return d ? `${d.w}x${d.h}` : "?";
 }
 
 /**
@@ -225,17 +241,17 @@ export async function renderPluginFenceToPng(
 	body: string,
 	sourcePath: string,
 	maxWidthPx = 960,
-	captureAttempt: 1 | 2 = 1,
 ): Promise<Uint8Array | null> {
 	if (!isPluginDiagramFenceLanguage(language)) return null;
 
-	const md = "```" + language + "\n" + body + "\n```";
+	const md = buildFenceMarkdown(language, body);
 	const host = document.createElement("div");
 	host.addClass("markdown-preview-view");
 	host.addClass("markdown-reading-view");
 	host.addClass("markdown-rendered");
 	host.style.position = "fixed";
-	host.style.visibility = "hidden";
+	host.style.visibility = "visible";
+	host.style.opacity = "0";
 	host.style.left = "-20000px";
 	host.style.top = "0";
 	host.style.width = `${maxWidthPx}px`;
@@ -245,39 +261,11 @@ export async function renderPluginFenceToPng(
 	const sub = new Component();
 	parentComponent.addChild(sub);
 	try {
-		const stableMax = captureAttempt === 1 ? 28_000 : 45_000;
-		const svgWaitMax = captureAttempt === 1 ? 26_000 : 40_000;
-		const bodyLc = body.toLowerCase();
-		const slowMermaidBody =
-			bodyLc.includes("gantt") ||
-			bodyLc.includes("sequencediagram") ||
-			bodyLc.includes("gitgraph") ||
-			bodyLc.includes("c4context") ||
-			bodyLc.includes("block-beta");
-		const mermaidHoldBase =
-			language.trim().toLowerCase() === "mermaid" || language.trim().toLowerCase() === "mmd"
-				? captureAttempt === 1
-					? 650
-					: 2_000
-				: 0;
-		const mermaidSlowExtra = mermaidHoldBase > 0 && slowMermaidBody ? (captureAttempt === 1 ? 900 : 1_800) : 0;
-		const mermaidHoldMs = mermaidHoldBase + mermaidSlowExtra;
-
 		await MarkdownRenderer.render(app, md, host, sourcePath, sub);
-		await waitForDomStable(host, { stableMs: captureAttempt === 1 ? 450 : 600, maxMs: stableMax });
-		await waitForSvgOrCanvasDeep(host, { maxMs: svgWaitMax, intervalMs: 50 });
+		await waitForDomStable(host, { stableMs: 450, maxMs: 25000 });
+		await waitForSvgOrCanvasDeep(host, { maxMs: 20000, intervalMs: 50 });
 
 		const svg = findLargestSvgDeep(host);
-
-		if (mermaidHoldMs > 0) {
-			await new Promise<void>((r) => window.setTimeout(r, mermaidHoldMs));
-		}
-
-		/** Prefer unmutated host first — html-to-image matches on-screen paint without our style rewrites. */
-		const fromHostClean = await rasterizeDiagramHostToPng(host, maxWidthPx);
-		const okClean = await acceptDiagramPng(fromHostClean);
-		if (okClean) return okClean;
-
 		if (svg) {
 			prepareDiagramSvgForRasterExport(svg);
 			await new Promise<void>((resolve) =>
@@ -286,30 +274,134 @@ export async function renderPluginFenceToPng(
 		}
 
 		const fromHostPrepared = await rasterizeDiagramHostToPng(host, maxWidthPx);
-		const okHost = await acceptDiagramPng(fromHostPrepared);
+		const okHost = acceptDiagramPng(fromHostPrepared);
 		if (okHost) return okHost;
+		// eslint-disable-next-line no-console
+		console.info(
+			"[DOCX-fallback] reject host-prepared bytes=%d dims=%s",
+			fromHostPrepared?.byteLength ?? 0,
+			pngDimsBrief(fromHostPrepared),
+		);
 
 		if (svg) {
 			const live = await rasterizeLiveSvgToPng(svg, maxWidthPx);
-			const okLive = await acceptDiagramPng(live);
+			const okLive = acceptDiagramPng(live);
 			if (okLive) return okLive;
+			// eslint-disable-next-line no-console
+			console.info(
+				"[DOCX-fallback] reject live-svg bytes=%d dims=%s",
+				live?.byteLength ?? 0,
+				pngDimsBrief(live),
+			);
 
 			try {
 				const png = await rasterizeSvgToPng(svg, maxWidthPx);
-				const ok = await acceptDiagramPng(contiguousUint8Array(png));
+				const ok = acceptDiagramPng(contiguousUint8Array(png));
 				if (ok) return ok;
+				// eslint-disable-next-line no-console
+				console.info(
+					"[DOCX-fallback] reject cloned-svg bytes=%d dims=%s",
+					png.byteLength,
+					pngDimsBrief(png),
+				);
 			} catch {
 				/* clone path may fail for some diagrams */
 			}
 		}
 
+		/** Host capture last: html-to-image + foreignObject is often unreliable for Mermaid labels. */
+		const fromHostClean = await rasterizeDiagramHostToPng(host, maxWidthPx);
+		const okClean = acceptDiagramPng(fromHostClean);
+		if (okClean) return okClean;
+		// eslint-disable-next-line no-console
+		console.info(
+			"[DOCX-fallback] reject host-clean bytes=%d dims=%s",
+			fromHostClean?.byteLength ?? 0,
+			pngDimsBrief(fromHostClean),
+		);
+
 		const canvas = querySelectorDeep(host, "canvas");
 		if (canvas instanceof HTMLCanvasElement) {
 			const png = await rasterizeCanvasToPng(canvas, maxWidthPx);
-			const ok = await acceptDiagramPng(contiguousUint8Array(png));
+			const ok = acceptDiagramPng(contiguousUint8Array(png));
 			if (ok) return ok;
+			// eslint-disable-next-line no-console
+			console.info(
+				"[DOCX-fallback] reject canvas bytes=%d dims=%s",
+				png.byteLength,
+				pngDimsBrief(png),
+			);
 		}
 		return null;
+	} finally {
+		sub.unload();
+		host.remove();
+	}
+}
+
+export async function renderPluginFenceToSvg(
+	app: App,
+	parentComponent: Component,
+	language: string,
+	body: string,
+	sourcePath: string,
+	maxWidthPx = 960,
+): Promise<{ data: Uint8Array; width: number; height: number } | null> {
+	if (!isPluginDiagramFenceLanguage(language)) return null;
+
+	const md = buildFenceMarkdown(language, body);
+	const host = document.createElement("div");
+	host.addClass("markdown-preview-view");
+	host.addClass("markdown-reading-view");
+	host.addClass("markdown-rendered");
+	host.style.position = "fixed";
+	host.style.visibility = "visible";
+	host.style.opacity = "0";
+	host.style.left = "-20000px";
+	host.style.top = "0";
+	host.style.width = `${maxWidthPx}px`;
+	host.style.pointerEvents = "none";
+	document.body.appendChild(host);
+
+	const sub = new Component();
+	parentComponent.addChild(sub);
+	try {
+		await MarkdownRenderer.render(app, md, host, sourcePath, sub);
+		await waitForDomStable(host, { stableMs: 450, maxMs: 25000 });
+		await waitForSvgOrCanvasDeep(host, { maxMs: 20000, intervalMs: 50 });
+
+		let svg: SVGSVGElement | null = null;
+		const mermaidSvg = querySelectorDeep(host, ".mermaid svg");
+		if (mermaidSvg instanceof SVGSVGElement) {
+			svg = mermaidSvg;
+		}
+		if (!svg) {
+			svg = findLargestSvgDeep(host);
+		}
+		if (!svg) return null;
+		prepareDiagramSvgForRasterExport(svg);
+		await new Promise<void>((resolve) =>
+			requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+		);
+
+		const dims = svgExportDisplayDimensions(svg);
+		const srcW = dims.w;
+		const srcH = dims.h;
+		const scale = srcW > maxWidthPx ? maxWidthPx / srcW : 1;
+		const width = Math.max(1, Math.round(srcW * scale));
+		const height = Math.max(1, Math.round(srcH * scale));
+
+		const clone = svg.cloneNode(true) as SVGSVGElement;
+		clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+		if (!clone.getAttribute("viewBox")) {
+			clone.setAttribute("viewBox", `0 0 ${srcW} ${srcH}`);
+		}
+		clone.setAttribute("width", String(width));
+		clone.setAttribute("height", String(height));
+
+		const xml = new XMLSerializer().serializeToString(clone);
+		const data = new TextEncoder().encode(xml);
+		return { data: contiguousUint8Array(data), width, height };
 	} finally {
 		sub.unload();
 		host.remove();

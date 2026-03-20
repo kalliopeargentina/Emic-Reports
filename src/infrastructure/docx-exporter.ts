@@ -25,8 +25,15 @@ import {
 	normalizeHighlightColorToken,
 	segmentHighlightSyntax,
 } from "./highlight-export";
-import { contiguousUint8Array, isAcceptableDiagramPng, isValidPng } from "./binary-image";
-import { isPluginDiagramFenceLanguage, renderPluginFenceToPng } from "./plugin-diagram-render";
+import { contiguousUint8Array, isAcceptableDiagramPng } from "./binary-image";
+import {
+	isPluginDiagramFenceLanguage,
+	parseFenceOpenerLang,
+	renderPluginFenceToSvg,
+	renderPluginFenceToPng,
+} from "./plugin-diagram-render";
+import { rasterizeSvgWithResvg } from "./resvg-rasterizer";
+import { normalizeMermaidSvgForRaster } from "./mermaid-svg-normalize";
 
 type DocxBlock = Paragraph | Table;
 type NumberingLevelConfig = {
@@ -47,6 +54,30 @@ type NumberingConfig = {
 	reference: string;
 	levels: NumberingLevelConfig[];
 };
+
+const SVG_FALLBACK_1PX_PNG = new Uint8Array([
+	137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8,
+	6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 10, 73, 68, 65, 84, 120, 156, 99, 96, 0, 0, 0, 2, 0,
+	1, 226, 33, 188, 51, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+]);
+
+/** Test switch: for diagnosing Word SVG behavior, avoid PNG diagram render fallbacks. */
+const DOCX_SVG_ONLY_TEST = false;
+const DOCX_DIAGRAM_RENDER_WIDTH_PX = 560;
+
+function summarizeSvgFeatures(svgBytes: Uint8Array): string {
+	try {
+		const xml = new TextDecoder().decode(svgBytes);
+		const hasForeignObject = xml.includes("<foreignObject");
+		const hasSvgText = xml.includes("<text");
+		const hasTSpan = xml.includes("<tspan");
+		const hasCssVar = xml.includes("var(");
+		const hasStyleTag = xml.includes("<style");
+		return `foreignObject=${hasForeignObject} text=${hasSvgText} tspan=${hasTSpan} cssVar=${hasCssVar} styleTag=${hasStyleTag}`;
+	} catch {
+		return "decode-error";
+	}
+}
 
 function parseRgbTriplet(rgb: string): [number, number, number] {
 	const parts = rgb.split(",").map((p) => Number(p.trim()));
@@ -75,16 +106,6 @@ function calloutBorderHex(accentRgb: string, mixTowardAccent: number): string {
 	const t = Math.max(0, Math.min(1, mixTowardAccent));
 	const mix = (c: number) => Math.round(255 * (1 - t) + c * t);
 	return rgbToDocxHex(mix(r), mix(g), mix(b));
-}
-
-/** First word after opening backticks/tildes, e.g. ```mermaid opts → mermaid */
-function parseFenceOpenerLang(line: string): string {
-	const t = line.trim();
-	const m = /^(`{3,}|~{3,})\s*(.*)$/.exec(t);
-	if (!m) return "";
-	const rest = (m[2] ?? "").trim();
-	if (!rest) return "";
-	return (rest.split(/\s+/)[0] ?? "").replace(/^[{}]+/, "");
 }
 
 export class DocxExporter {
@@ -136,7 +157,6 @@ export class DocxExporter {
 		let codeFenceLang = "";
 		const codeLines: string[] = [];
 		let index = 0;
-
 		while (index < lines.length) {
 			const line = lines[index] ?? "";
 			const trimmed = line.trim();
@@ -305,35 +325,189 @@ export class DocxExporter {
 		const body = codeLines.join("\n");
 		const sourcePath = getPrimaryMarkdownSourcePath(project);
 		if (isPluginDiagramFenceLanguage(codeFenceLang)) {
+			const isMermaid = codeFenceLang.trim().toLowerCase() === "mermaid";
 			try {
-				let png = await renderPluginFenceToPng(
+				// eslint-disable-next-line no-console
+				console.info("[DOCX-export] try SVG render for lang=%s", codeFenceLang);
+				const svgAsset = await renderPluginFenceToSvg(
+					this.app,
+					this.component,
+					codeFenceLang,
+					body,
+					sourcePath,
+					DOCX_DIAGRAM_RENDER_WIDTH_PX,
+				);
+				if (svgAsset && svgAsset.data.byteLength > 0) {
+					if (svgAsset.width < 40 || svgAsset.height < 40) {
+						// eslint-disable-next-line no-console
+						console.info(
+							"[DOCX-export] reject SVG dims=%dx%d (too small/collapsed)",
+							svgAsset.width,
+							svgAsset.height,
+						);
+						return this.createCodeBlockParagraph(body, tokens);
+					} else {
+						if (isMermaid) {
+							// eslint-disable-next-line no-console
+							console.info(
+								"[DOCX-export] mermaid svg features: %s",
+								summarizeSvgFeatures(svgAsset.data),
+							);
+						}
+						const svgPngFallback = DOCX_SVG_ONLY_TEST
+							? SVG_FALLBACK_1PX_PNG
+							: await this.rasterizeSvgBytesToPng(
+									svgAsset.data,
+									Math.min(svgAsset.width, DOCX_DIAGRAM_RENDER_WIDTH_PX),
+									svgAsset.height,
+									isMermaid,
+								);
+						if (isMermaid && !svgPngFallback) {
+							// eslint-disable-next-line no-console
+							console.info("[DOCX-export] mermaid svg raster fallback failed -> code block");
+							return this.createCodeBlockParagraph(body, tokens);
+						}
+					// eslint-disable-next-line no-console
+						console.info(
+							"[DOCX-export] SVG produced bytes=%d dims=%dx%d svgRasterFallback=%d",
+							svgAsset.data.byteLength,
+							svgAsset.width,
+							svgAsset.height,
+							svgPngFallback?.byteLength ?? 0,
+						);
+						return this.createDiagramSvgParagraph(
+							svgAsset.data,
+							svgPngFallback ?? SVG_FALLBACK_1PX_PNG,
+							svgAsset.width,
+							svgAsset.height,
+							tokens,
+						);
+					}
+				}
+			} catch {
+				/* SVG path failed; continue to PNG fallback */
+			}
+			if (DOCX_SVG_ONLY_TEST) {
+				// eslint-disable-next-line no-console
+				console.info("[DOCX-export] SVG-only mode: skip PNG fallback for lang=%s", codeFenceLang);
+				return this.createCodeBlockParagraph(body, tokens);
+			}
+			if (isMermaid) return this.createCodeBlockParagraph(body, tokens);
+			try {
+				// eslint-disable-next-line no-console
+				console.info("[DOCX-export] fallback renderPluginFenceToPng for lang=%s", codeFenceLang);
+				const png = await renderPluginFenceToPng(
 					this.app,
 					this.component,
 					codeFenceLang,
 					body,
 					sourcePath,
 					720,
-					1,
 				);
-				if (!(await isAcceptableDiagramPng(png))) {
-					png = await renderPluginFenceToPng(
-						this.app,
-						this.component,
-						codeFenceLang,
-						body,
-						sourcePath,
-						960,
-						2,
-					);
-				}
-				if (await isAcceptableDiagramPng(png)) {
-					return await this.createDiagramPngParagraph(png!, tokens);
+				if (png && isAcceptableDiagramPng(png)) {
+					// eslint-disable-next-line no-console
+					console.info("[DOCX-export] fallback produced bytes=%d", png.byteLength);
+					return await this.createDiagramPngParagraph(png, tokens);
 				}
 			} catch {
 				/* Render/raster failed — fall back to code block */
 			}
 		}
 		return this.createCodeBlockParagraph(body, tokens);
+	}
+
+	private async rasterizeSvgBytesToPng(
+		svgBytes: Uint8Array,
+		srcWidth: number,
+		srcHeight: number,
+		isMermaid: boolean,
+	): Promise<Uint8Array | null> {
+		const preparedSvg = isMermaid ? normalizeMermaidSvgForRaster(svgBytes) : svgBytes;
+		if (isMermaid && preparedSvg !== svgBytes) {
+			// eslint-disable-next-line no-console
+			console.info(
+				"[DOCX-export] mermaid SVG normalized bytes=%d->%d",
+				svgBytes.byteLength,
+				preparedSvg.byteLength,
+			);
+		}
+		const blob = new Blob([preparedSvg], { type: "image/svg+xml;charset=utf-8" });
+		const url = URL.createObjectURL(blob);
+		try {
+			const img = new Image();
+			await new Promise<void>((resolve, reject) => {
+				img.onload = () => resolve();
+				img.onerror = () => reject(new Error("svg->png decode"));
+				img.src = url;
+			});
+			const w = Math.max(1, Math.round(srcWidth));
+			const h = Math.max(1, Math.round(srcHeight));
+			const canvas = document.createElement("canvas");
+			canvas.width = w;
+			canvas.height = h;
+			const ctx = canvas.getContext("2d");
+			if (!ctx) return null;
+			ctx.fillStyle = "#ffffff";
+			ctx.fillRect(0, 0, w, h);
+			ctx.drawImage(img, 0, 0, w, h);
+			const outBlob = await new Promise<Blob | null>((resolve) =>
+				canvas.toBlob(resolve, "image/png", 1),
+			);
+			if (!outBlob) return null;
+			const bytes = contiguousUint8Array(new Uint8Array(await outBlob.arrayBuffer()));
+			if (isAcceptableDiagramPng(bytes)) {
+				// Browser raster often preserves Mermaid text/labels better than resvg.
+				// eslint-disable-next-line no-console
+				console.info(
+					"[DOCX-export] svg->png via browser bytes=%d (mermaid=%s)",
+					bytes.byteLength,
+					isMermaid ? "yes" : "no",
+				);
+				return bytes;
+			}
+		} catch {
+			/* try resvg fallback below */
+		} finally {
+			URL.revokeObjectURL(url);
+		}
+		const viaResvg = await rasterizeSvgWithResvg(preparedSvg, srcWidth);
+		if (viaResvg) {
+			// eslint-disable-next-line no-console
+			console.info("[DOCX-export] svg->png via resvg bytes=%d", viaResvg.byteLength);
+			return viaResvg;
+		}
+		return null;
+	}
+
+	private createDiagramSvgParagraph(
+		data: Uint8Array,
+		fallbackPng: Uint8Array,
+		srcWidth: number,
+		srcHeight: number,
+		tokens: StyleTokens,
+	): Paragraph {
+		const maxW = 560;
+		const scale = srcWidth > maxW ? maxW / srcWidth : 1;
+		const width = Math.max(1, Math.round(srcWidth * scale));
+		const height = Math.max(1, Math.round(srcHeight * scale));
+		return new Paragraph({
+			children: [
+				new ImageRun({
+					data: contiguousUint8Array(data),
+					type: "svg",
+					fallback: {
+						type: "png",
+						data: contiguousUint8Array(fallbackPng),
+					},
+					transformation: { width, height },
+				}),
+			],
+			alignment: AlignmentType.CENTER,
+			spacing: {
+				before: this.ptToTwips(tokens.codeBlockSpacingBefore),
+				after: this.ptToTwips(tokens.codeBlockSpacingAfter),
+			},
+		});
 	}
 
 	private async createDiagramPngParagraph(bytes: Uint8Array, tokens: StyleTokens): Promise<Paragraph> {

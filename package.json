@@ -26,6 +26,7 @@
 		"typescript-eslint": "8.35.1"
 	},
 	"dependencies": {
+		"@resvg/resvg-wasm": "^2.6.2",
 		"docx": "^9.6.1",
 		"html-to-image": "^1.11.13",
 		"obsidian": "latest"

@@ -159,6 +159,8 @@ export default class ReportArchitectPlugin extends Plugin {
 		if (project.exportOptions.formats === "docx" || project.exportOptions.formats === "both") {
 			const docxPath = `${folder}/${safeName}.docx`;
 			await exportReportDocx(
+				this.app,
+				this,
 				project,
 				docxPath,
 				this.docxExporter,
