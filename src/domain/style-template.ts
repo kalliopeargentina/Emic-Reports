@@ -25,6 +25,7 @@ export interface StyleTokens {
 	pageMarginRight: string;
 	pageMarginBottom: string;
 	pageMarginLeft: string;
+	pageBackgroundColor: string;
 
 	/* --- Links --- */
 	linkColor: string;
@@ -97,7 +98,10 @@ export interface StyleTokens {
 	listFontSize: number;
 	listLineHeight: number;
 	listCustomBullet: boolean;
+	listBulletChar: string;
 	listBulletOffset: string;
+	listBulletTopOffset: string;
+	listIndentPerLevel: number;
 
 	/* --- Blockquote --- */
 	blockquoteTextAlign: TextAlignOption;
@@ -106,6 +110,11 @@ export interface StyleTokens {
 
 	/* --- Mermaid --- */
 	mermaidColor: string;
+
+	/* --- Cover and DOCX spacing --- */
+	coverBackgroundOpacity: number;
+	codeBlockSpacingBefore: number;
+	codeBlockSpacingAfter: number;
 }
 
 export interface PrintRules {
@@ -152,6 +161,7 @@ export const DEFAULT_STYLE_TOKENS: StyleTokens = {
 	pageMarginRight: "2cm",
 	pageMarginBottom: "2cm",
 	pageMarginLeft: "2cm",
+	pageBackgroundColor: "#ffffff",
 
 	linkColor: "#000000",
 	linkUnderline: false,
@@ -215,13 +225,20 @@ export const DEFAULT_STYLE_TOKENS: StyleTokens = {
 	listFontSize: 11,
 	listLineHeight: 1.1,
 	listCustomBullet: true,
+	listBulletChar: "\u2022",
 	listBulletOffset: "-1.15em",
+	listBulletTopOffset: "-0.05em",
+	listIndentPerLevel: 14,
 
 	blockquoteTextAlign: "center",
 	blockquoteFontSize: 10,
 	blockquoteMarginY: 5,
 
 	mermaidColor: "#000000",
+
+	coverBackgroundOpacity: 0.2,
+	codeBlockSpacingBefore: 6,
+	codeBlockSpacingAfter: 6,
 };
 
 export const DEFAULT_PRINT_RULES: PrintRules = {
