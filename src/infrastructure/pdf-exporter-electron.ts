@@ -84,8 +84,11 @@ html, body { margin: 0; background: ${t.pageBackgroundColor} !important; }
 <script>
 async function waitForAssets() {
 	const images = Array.from(document.images || []);
-	await Promise.all(images.map((img) => {
-		if (img.complete) return Promise.resolve();
+	await Promise.all(images.map(async (img) => {
+		try {
+			if (img.decode) await img.decode();
+		} catch {}
+		if (img.complete && img.naturalWidth > 0) return;
 		return new Promise((resolve) => {
 			img.addEventListener("load", resolve, { once: true });
 			img.addEventListener("error", resolve, { once: true });
@@ -94,6 +97,7 @@ async function waitForAssets() {
 	if (document.fonts && document.fonts.ready) {
 		try { await document.fonts.ready; } catch {}
 	}
+	await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 	document.body.setAttribute("data-ra-ready", "1");
 }
 window.addEventListener("load", () => { void waitForAssets(); });
@@ -126,6 +130,7 @@ ${pages
 							webContents?: {
 								loadURL?: (url: string) => Promise<void>;
 								printToPDF?: (options: Record<string, unknown>) => Promise<Uint8Array>;
+								executeJavaScript?: (code: string) => Promise<unknown>;
 							};
 						};
 					};
@@ -138,6 +143,26 @@ ${pages
 
 			const fullPath = this.adapterPathToFileUrl(htmlPath);
 			await focusedWindow.webContents.loadURL(fullPath);
+			const exec = focusedWindow.webContents.executeJavaScript;
+			if (typeof exec === "function") {
+				await exec(`
+					new Promise((resolve) => {
+						const deadline = Date.now() + 20000;
+						const tick = () => {
+							if (document.body && document.body.getAttribute("data-ra-ready") === "1") {
+								resolve(true);
+								return;
+							}
+							if (Date.now() > deadline) {
+								resolve(false);
+								return;
+							}
+							requestAnimationFrame(tick);
+						};
+						tick();
+					});
+				`);
+			}
 			return await focusedWindow.webContents.printToPDF({
 				printBackground: project.exportOptions.printBackground,
 				landscape: project.orientation === "landscape",

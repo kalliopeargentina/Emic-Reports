@@ -6,6 +6,11 @@ import {
 	isValidPng,
 	pngIhdrSize,
 } from "./binary-image";
+import {
+	CHART_CANVAS_WAIT_MAX_MS,
+	replacePaintedCanvasesWithImages,
+	waitForChartCanvasPaint,
+} from "./chart-canvas-snapshot";
 import { waitForDomStable } from "./dom-settle";
 import { prepareDiagramSvgForRasterExport } from "./svg-inline-styles";
 import { svgExportDisplayDimensions } from "./svg-export-dims";
@@ -34,6 +39,12 @@ export function isPluginDiagramFenceLanguage(lang: string): boolean {
 }
 
 /** Exported for DOCX / fence instrumentation (must match docx line parsing). */
+/** Ant Design Charts fences render to canvas; SVG export grabs wrong layer — use PNG path only. */
+function isEmicChartsCanvasFence(language: string): boolean {
+	const l = language.trim().toLowerCase();
+	return l === "emic-charts-view" || l === "emic-charts" || l === "emic-chart";
+}
+
 export function parseFenceOpenerLang(line: string): string {
 	const t = line.trim();
 	const m = /^(`{3,}|~{3,})\s*(.*)$/.exec(t);
@@ -178,6 +189,56 @@ function acceptDiagramPng(candidate: Uint8Array | null): Uint8Array | null {
 	return candidate;
 }
 
+/** After canvas→img swap, draw the largest chart image to PNG (html-to-image fallback). */
+async function rasterizeLargestDataUrlImageToPng(
+	host: HTMLElement,
+	maxWidthPx: number,
+): Promise<Uint8Array | null> {
+	const imgs = Array.from(host.querySelectorAll('img[src^="data:image"]')) as HTMLImageElement[];
+	let best: HTMLImageElement | null = null;
+	let bestArea = 0;
+	for (const img of imgs) {
+		const r = img.getBoundingClientRect();
+		const area = Math.max(1, r.width) * Math.max(1, r.height);
+		if (area > bestArea && r.width >= 32 && r.height >= 32) {
+			bestArea = area;
+			best = img;
+		}
+	}
+	if (!best) return null;
+	try {
+		await (best.decode?.() ?? Promise.resolve());
+	} catch {
+		/* ignore */
+	}
+	let w = best.naturalWidth || best.width;
+	let h = best.naturalHeight || best.height;
+	if (!w || !h) {
+		const r = best.getBoundingClientRect();
+		w = Math.round(r.width) || 400;
+		h = Math.round(r.height) || 300;
+	}
+	const scale = w > maxWidthPx ? maxWidthPx / w : 1;
+	const outW = Math.max(1, Math.round(w * scale));
+	const outH = Math.max(1, Math.round(h * scale));
+	const canvas = document.createElement("canvas");
+	canvas.width = outW;
+	canvas.height = outH;
+	const ctx = canvas.getContext("2d");
+	if (!ctx) return null;
+	ctx.fillStyle = "#ffffff";
+	ctx.fillRect(0, 0, outW, outH);
+	try {
+		ctx.drawImage(best, 0, 0, outW, outH);
+	} catch {
+		return null;
+	}
+	const outBlob = await new Promise<Blob | null>((r) => canvas.toBlob(r, "image/png", 1));
+	if (!outBlob) return null;
+	const bytes = new Uint8Array(await outBlob.arrayBuffer());
+	return isAcceptableDiagramPng(bytes) ? contiguousUint8Array(bytes) : null;
+}
+
 function pngDimsBrief(candidate: Uint8Array | null): string {
 	if (!candidate) return "null";
 	const d = pngIhdrSize(candidate);
@@ -265,6 +326,14 @@ export async function renderPluginFenceToPng(
 		await waitForDomStable(host, { stableMs: 450, maxMs: 25000 });
 		await waitForSvgOrCanvasDeep(host, { maxMs: 20000, intervalMs: 50 });
 
+		if (isEmicChartsCanvasFence(language)) {
+			await waitForChartCanvasPaint(host, CHART_CANVAS_WAIT_MAX_MS);
+			replacePaintedCanvasesWithImages(host);
+			await new Promise<void>((resolve) =>
+				requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+			);
+		}
+
 		const svg = findLargestSvgDeep(host);
 		if (svg) {
 			prepareDiagramSvgForRasterExport(svg);
@@ -332,6 +401,10 @@ export async function renderPluginFenceToPng(
 				pngDimsBrief(png),
 			);
 		}
+
+		const fromChartImg = await rasterizeLargestDataUrlImageToPng(host, maxWidthPx);
+		if (fromChartImg) return fromChartImg;
+
 		return null;
 	} finally {
 		sub.unload();
@@ -348,6 +421,8 @@ export async function renderPluginFenceToSvg(
 	maxWidthPx = 960,
 ): Promise<{ data: Uint8Array; width: number; height: number } | null> {
 	if (!isPluginDiagramFenceLanguage(language)) return null;
+	/** Canvas charts: never embed SVG (misleading bbox / decorative svg). DOCX uses PNG path. */
+	if (isEmicChartsCanvasFence(language)) return null;
 
 	const md = buildFenceMarkdown(language, body);
 	const host = document.createElement("div");
