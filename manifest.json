@@ -1,11 +1,10 @@
 {
-	"id": "sample-plugin",
-	"name": "Sample Plugin",
+	"id": "emic-reports",
+	"name": "Emic Report Architect",
 	"version": "1.0.0",
 	"minAppVersion": "0.15.0",
-	"description": "Demonstrates some of the capabilities of the Obsidian API.",
-	"author": "Obsidian",
-	"authorUrl": "https://obsidian.md",
-	"fundingUrl": "https://obsidian.md/pricing",
-	"isDesktopOnly": false
+	"description": "Compose multiple notes into professionally styled reports and export to PDF or DOCX.",
+	"author": "Emic Reports",
+	"authorUrl": "https://github.com",
+	"isDesktopOnly": true
 }
