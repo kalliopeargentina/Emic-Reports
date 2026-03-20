@@ -75,6 +75,8 @@ export interface StyleTokens {
 	preLineHeight: number;
 	/** Fenced code: wrap long lines vs strict pre (horizontal scroll in browser/PDF) */
 	preWhiteSpace: PreWhiteSpaceMode;
+	/** Default background for native ==highlight== (no `{color}`). CSS e.g. rgba() or #hex */
+	highlightDefaultBackground: string;
 
 	/* --- Callouts (PDF/HTML + DOCX box styling) --- */
 	/** Left accent bar width in px */
@@ -232,6 +234,7 @@ export const DEFAULT_STYLE_TOKENS: StyleTokens = {
 	preBorderRadius: 0,
 	preLineHeight: 1,
 	preWhiteSpace: "pre-wrap",
+	highlightDefaultBackground: "rgba(255, 235, 59, 0.45)",
 
 	calloutBorderLeftWidthPx: 4,
 	calloutBorderRadiusPx: 6,
@@ -316,7 +319,7 @@ export function createAcademicExportTemplate(): StyleTemplate {
 	return {
 		id: "academic-export-v1",
 		name: "Academic export v1",
-		version: 3,
+		version: 4,
 		basePreset: "academic-export-v1",
 		tokens: { ...DEFAULT_STYLE_TOKENS },
 		printRules: { ...DEFAULT_PRINT_RULES },

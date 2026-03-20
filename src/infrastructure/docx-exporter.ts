@@ -19,6 +19,12 @@ import { TFile, requestUrl, type App } from "obsidian";
 import { CALLOUT_TYPE_RGB } from "../domain/callout-palette";
 import type { ReportProject } from "../domain/report-project";
 import { mergePrintRules, mergeStyleTokens, type StyleTokens } from "../domain/style-template";
+import {
+	defaultHighlightCssToDocxFill,
+	highlightCssToDocxFill,
+	normalizeHighlightColorToken,
+	segmentHighlightSyntax,
+} from "./highlight-export";
 
 type DocxBlock = Paragraph | Table;
 type NumberingLevelConfig = {
@@ -265,7 +271,34 @@ export class DocxExporter {
 	}
 
 	private inlineRuns(text: string, tokens: StyleTokens): Array<TextRun | ExternalHyperlink> {
+		const segs = segmentHighlightSyntax(text);
+		const out: Array<TextRun | ExternalHyperlink> = [];
+		const defaultFill = defaultHighlightCssToDocxFill(tokens.highlightDefaultBackground);
+
+		for (const seg of segs) {
+			if (seg.kind === "text") {
+				if (seg.text) out.push(...this.inlineRunsPlain(seg.text, tokens, undefined));
+				continue;
+			}
+			let fill = defaultFill;
+			if (seg.colorToken) {
+				const css = normalizeHighlightColorToken(seg.colorToken);
+				if (css) fill = highlightCssToDocxFill(css, defaultFill);
+			}
+			out.push(...this.inlineRunsPlain(seg.text, tokens, fill));
+		}
+
+		return out.length ? out : [new TextRun("")];
+	}
+
+	private inlineRunsPlain(
+		text: string,
+		tokens: StyleTokens,
+		highlightFill: string | undefined,
+	): Array<TextRun | ExternalHyperlink> {
 		const runs: Array<TextRun | ExternalHyperlink> = [];
+		const hl =
+			highlightFill !== undefined ? { type: ShadingType.CLEAR, fill: highlightFill } : undefined;
 		const pattern = /(\[[^\]]+\]\(([^)]+)\)|`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|~~[^~]+~~)/g;
 		let index = 0;
 		let match = pattern.exec(text);
@@ -278,6 +311,7 @@ export class DocxExporter {
 						color: this.toDocxColor(tokens.colorText),
 						font: tokens.fontBody,
 						size: this.ptToHalfPoint(tokens.fontSizeBody),
+						shading: hl,
 					}),
 				);
 			}
@@ -296,6 +330,7 @@ export class DocxExporter {
 								underline: tokens.linkUnderline ? {} : undefined,
 								font: tokens.fontBody,
 								size: this.ptToHalfPoint(tokens.fontSizeBody),
+								shading: hl,
 							}),
 						],
 					}),
@@ -308,6 +343,7 @@ export class DocxExporter {
 						color: this.toDocxColor(tokens.strongColor),
 						font: tokens.fontBody,
 						size: this.ptToHalfPoint(tokens.fontSizeBody),
+						shading: hl,
 					}),
 				);
 			} else if (token.startsWith("*")) {
@@ -318,6 +354,7 @@ export class DocxExporter {
 						color: this.toDocxColor(tokens.emColor),
 						font: tokens.fontBody,
 						size: this.ptToHalfPoint(tokens.fontSizeBody),
+						shading: hl,
 					}),
 				);
 			} else if (token.startsWith("`")) {
@@ -327,6 +364,7 @@ export class DocxExporter {
 						font: tokens.fontMono,
 						color: this.toDocxColor(tokens.codeInlineColor),
 						size: this.ptToHalfPoint(tokens.codeFontSize),
+						shading: hl,
 					}),
 				);
 			} else if (token.startsWith("~~")) {
@@ -337,6 +375,7 @@ export class DocxExporter {
 						color: this.toDocxColor(tokens.colorText),
 						font: tokens.fontBody,
 						size: this.ptToHalfPoint(tokens.fontSizeBody),
+						shading: hl,
 					}),
 				);
 			}
@@ -350,10 +389,11 @@ export class DocxExporter {
 					color: this.toDocxColor(tokens.colorText),
 					font: tokens.fontBody,
 					size: this.ptToHalfPoint(tokens.fontSizeBody),
+					shading: hl,
 				}),
 			);
 		}
-		return runs.length ? runs : [new TextRun("")];
+		return runs.length ? runs : [new TextRun({ text: "", shading: hl })];
 	}
 
 	private createCodeBlockParagraph(text: string, tokens: StyleTokens): Paragraph {

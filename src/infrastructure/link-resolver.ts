@@ -1,5 +1,12 @@
 import { TFile, type App } from "obsidian";
 import type { ReportProject } from "../domain/report-project";
+import { mergeStyleTokens } from "../domain/style-template";
+import { expandHighlightsInMarkdown } from "./highlight-export";
+
+export type LinkResolveOptions = {
+	/** When true, keep ==highlight== as Markdown for the DOCX path (parser handles it). */
+	skipHighlightHtml?: boolean;
+};
 
 const MAX_EMBED_DEPTH = 12;
 
@@ -203,10 +210,15 @@ function replaceWikiLinksOutsideCode(markdown: string, replace: (linkBody: strin
 export class LinkResolver {
 	constructor(private app: App) {}
 
-	async resolve(_project: ReportProject, markdown: string): Promise<string> {
+	async resolve(_project: ReportProject, markdown: string, options?: LinkResolveOptions): Promise<string> {
 		const withEmbeds = await this.expandNoteEmbeds(markdown, _project, "", 0, new Set());
 
-		const withWikiLinks = replaceWikiLinksOutsideCode(withEmbeds, (linkBody: string) => {
+		const tokens = mergeStyleTokens(_project.styleTemplate.tokens);
+		const afterHighlights = options?.skipHighlightHtml
+			? withEmbeds
+			: expandHighlightsInMarkdown(withEmbeds, tokens.highlightDefaultBackground);
+
+		const withWikiLinks = replaceWikiLinksOutsideCode(afterHighlights, (linkBody: string) => {
 			const [rawPath, alias] = linkBody.split("|");
 			const normalizedPath = (rawPath ?? "").trim();
 			const file = this.app.metadataCache.getFirstLinkpathDest(normalizedPath, "");

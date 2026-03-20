@@ -166,6 +166,13 @@ export class CssTemplateEngine {
 	color: ${t.codeInlineColor} !important;
 }
 
+.ra-render-frame mark {
+	border-radius: 2px !important;
+	padding: 0 0.12em !important;
+	-webkit-print-color-adjust: exact !important;
+	print-color-adjust: exact !important;
+}
+
 .ra-render-frame mjx-math {
 	font-size: ${t.mathScalePercent}% !important;
 }

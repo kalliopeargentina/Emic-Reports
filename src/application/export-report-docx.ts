@@ -11,6 +11,6 @@ export async function exportReportDocx(
 	linkResolver: LinkResolver,
 ): Promise<void> {
 	const markdown = await composer.compose(project);
-	const resolvedMarkdown = await linkResolver.resolve(project, markdown);
+	const resolvedMarkdown = await linkResolver.resolve(project, markdown, { skipHighlightHtml: true });
 	await docxExporter.export(project, resolvedMarkdown, outputPath);
 }

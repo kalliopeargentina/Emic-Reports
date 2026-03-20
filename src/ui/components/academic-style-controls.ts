@@ -354,7 +354,7 @@ export function renderAcademicStyleControls(
 				.setDynamicTooltip()
 				.onChange((v) => patchTokens({ preLineHeight: v })),
 		);
-	new Setting(container)
+		new Setting(container)
 		.setName("Pre white space")
 		.setDesc("How fenced code blocks wrap in PDF/HTML export.")
 		.addDropdown((dropdown) =>
@@ -363,6 +363,15 @@ export function renderAcademicStyleControls(
 				.addOption("pre", "Do not wrap (strict)")
 				.setValue(t.preWhiteSpace)
 				.onChange((v) => patchTokens({ preWhiteSpace: v as PreWhiteSpaceMode })),
+		);
+	new Setting(container)
+		.setName("Default highlight background (CSS)")
+		.setDesc("Used for ==text==. Named colors use =={red} text== (Emic-QDA style). Examples: rgba(255,235,59,0.45) or #ffee58.")
+		.addText((text) =>
+			text
+				.setPlaceholder("rgba(255, 235, 59, 0.45)")
+				.setValue(t.highlightDefaultBackground)
+				.onChange((v) => patchTokens({ highlightDefaultBackground: v })),
 		);
 	new Setting(container)
 		.setName("Code block spacing before (pt)")
