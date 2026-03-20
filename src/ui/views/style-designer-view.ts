@@ -1,12 +1,22 @@
 import { Setting } from "obsidian";
-import type { ReportProject } from "../../domain/report-project";
+import type { BackgroundImageConfig, StyleTemplate } from "../../domain/style-template";
 import { renderReportBackgroundPicker } from "../components/report-background-picker";
+
+/** Editable slice shared by the report composer and the template editor panel. */
+export interface StyleEditorState {
+	styleTemplate: StyleTemplate;
+	backgroundImage?: BackgroundImageConfig;
+}
 
 export class StyleDesignerView {
 	constructor(
 		private container: HTMLElement,
-		private project: ReportProject,
-		private onChange: (project: ReportProject) => void,
+		private state: StyleEditorState,
+		private onChange: (state: StyleEditorState) => void,
+		private options?: {
+			/** When background image path is set/cleared, update print export flag. */
+			onPrintBackgroundChange?: (printBackground: boolean) => void;
+		},
 	) {}
 
 	render(): void {
@@ -18,11 +28,11 @@ export class StyleDesignerView {
 			.addSlider((slider) =>
 				slider
 					.setLimits(8, 16, 1)
-					.setValue(this.project.styleTemplate.tokens.fontSizeBody)
+					.setValue(this.state.styleTemplate.tokens.fontSizeBody)
 					.setDynamicTooltip()
 					.onChange((next) => {
-						this.project.styleTemplate.tokens.fontSizeBody = next;
-						this.onChange(this.project);
+						this.state.styleTemplate.tokens.fontSizeBody = next;
+						this.onChange(this.state);
 					}),
 			);
 
@@ -31,27 +41,27 @@ export class StyleDesignerView {
 			.addSlider((slider) =>
 				slider
 					.setLimits(1, 2, 0.1)
-					.setValue(this.project.styleTemplate.tokens.lineHeightBody)
+					.setValue(this.state.styleTemplate.tokens.lineHeightBody)
 					.setDynamicTooltip()
 					.onChange((next) => {
-						this.project.styleTemplate.tokens.lineHeightBody = next;
-						this.onChange(this.project);
+						this.state.styleTemplate.tokens.lineHeightBody = next;
+						this.onChange(this.state);
 					}),
 			);
 
 		new Setting(this.container)
 			.setName("Text color")
 			.addColorPicker((picker) =>
-				picker.setValue(this.project.styleTemplate.tokens.colorText).onChange((next) => {
-					this.project.styleTemplate.tokens.colorText = next;
-					this.onChange(this.project);
+				picker.setValue(this.state.styleTemplate.tokens.colorText).onChange((next) => {
+					this.state.styleTemplate.tokens.colorText = next;
+					this.onChange(this.state);
 				}),
 			);
 
-		renderReportBackgroundPicker(this.container, this.project.backgroundImage, (next) => {
-			this.project.backgroundImage = next;
-			this.project.exportOptions.printBackground = Boolean(next?.assetPath);
-			this.onChange(this.project);
+		renderReportBackgroundPicker(this.container, this.state.backgroundImage, (next) => {
+			this.state.backgroundImage = next;
+			this.options?.onPrintBackgroundChange?.(Boolean(next?.assetPath));
+			this.onChange(this.state);
 		});
 	}
 }

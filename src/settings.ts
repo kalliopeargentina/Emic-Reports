@@ -5,6 +5,8 @@ export type ExportFormat = "pdf" | "docx" | "both";
 
 export interface ReportArchitectSettings {
 	defaultOutputFolder: string;
+	/** Vault-relative folder where style template JSON files are stored. */
+	templatesFolder: string;
 	defaultPaperSize: "A4" | "Letter" | "Legal";
 	defaultFormat: ExportFormat;
 	openPreviewOnExport: boolean;
@@ -13,6 +15,7 @@ export interface ReportArchitectSettings {
 
 export const DEFAULT_SETTINGS: ReportArchitectSettings = {
 	defaultOutputFolder: "Emic report architect",
+	templatesFolder: "Utils/Emic-Report-Arquitect",
 	defaultPaperSize: "A4",
 	defaultFormat: "pdf",
 	openPreviewOnExport: true,
@@ -39,6 +42,21 @@ export class ReportArchitectSettingTab extends PluginSettingTab {
 					.setValue(this.plugin.settings.defaultOutputFolder)
 					.onChange(async (value) => {
 						this.plugin.settings.defaultOutputFolder = value.trim() || "Emic report architect";
+						await this.plugin.saveSettings();
+					}),
+			);
+
+		new Setting(containerEl)
+			.setName("Folder for templates")
+			.setDesc("Use a folder inside the vault for style template JSON files.")
+			.addText((text) =>
+				text
+					// eslint-disable-next-line obsidianmd/ui/sentence-case -- example vault path
+					.setPlaceholder("Utils/Emic-Report-Arquitect")
+					.setValue(this.plugin.settings.templatesFolder)
+					.onChange(async (value) => {
+						this.plugin.settings.templatesFolder =
+							value.trim() || DEFAULT_SETTINGS.templatesFolder;
 						await this.plugin.saveSettings();
 					}),
 			);

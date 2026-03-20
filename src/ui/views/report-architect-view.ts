@@ -7,9 +7,9 @@ import { validateProject } from "../../domain/report-project";
 import { ReportNodeTree } from "../components/report-node-tree";
 import { renderExportFormatSelector } from "../components/export-format-selector";
 import { renderPageSizePicker } from "../components/page-size-picker";
-import { StyleDesignerView } from "./style-designer-view";
 import { CoverConfigModal } from "../modals/cover-config-modal";
 import { ReportPreviewModal } from "../modals/report-preview-modal";
+import { cloneJson } from "../../utils/json-clone";
 
 export const REPORT_ARCHITECT_VIEW_TYPE = "report-architect-view";
 
@@ -26,7 +26,7 @@ export class ReportArchitectView extends ItemView {
 	}
 
 	getDisplayText(): string {
-		return "Emic report architect";
+		return "Report composer";
 	}
 
 	getIcon(): string {
@@ -57,6 +57,42 @@ export class ReportArchitectView extends ItemView {
 					})();
 				}),
 			);
+
+		const listedTemplates = await this.plugin.templateRepository.list();
+		const hasTemplateOption = listedTemplates.some((t) => t.id === project.styleTemplateId);
+		new Setting(controls)
+			.setName("Style template")
+			.setDesc("Pick a saved template. Edit templates in the style template editor side panel.")
+			.addDropdown((dropdown) => {
+				for (const t of listedTemplates) {
+					dropdown.addOption(t.id, t.builtin ? `${t.name} (built-in)` : t.name);
+				}
+				if (!hasTemplateOption) {
+					dropdown.addOption(
+						project.styleTemplateId,
+						`${project.styleTemplate.name || project.styleTemplateId} (current)`,
+					);
+				}
+				dropdown.setValue(project.styleTemplateId);
+				dropdown.onChange((id) => {
+					void (async () => {
+						const full = await this.plugin.templateRepository.loadFull(id);
+						if (!full) {
+							new Notice("Template not found.");
+							return;
+						}
+						project.styleTemplateId = full.styleTemplate.id;
+						project.styleTemplate = cloneJson(full.styleTemplate);
+						project.backgroundImage = full.backgroundImage
+							? { ...full.backgroundImage }
+							: undefined;
+						project.exportOptions.printBackground = Boolean(full.printBackground);
+						project.updatedAt = new Date().toISOString();
+						await this.plugin.projectRepository.save(project);
+						await this.render();
+					})();
+				});
+			});
 
 		renderPageSizePicker(controls, project, (nextProject) => {
 			void (async () => {
@@ -169,14 +205,6 @@ export class ReportArchitectView extends ItemView {
 			})();
 		});
 		tree.render();
-
-		const stylePanel = container.createDiv({ cls: "ra-style-panel" });
-		new StyleDesignerView(stylePanel, project, (nextProject) => {
-			void (async () => {
-				nextProject.updatedAt = new Date().toISOString();
-				await this.plugin.projectRepository.save(nextProject);
-			})();
-		}).render();
 
 		const actionPanel = container.createDiv({ cls: "ra-action-panel" });
 		new Setting(actionPanel)

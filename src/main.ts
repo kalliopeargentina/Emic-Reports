@@ -14,15 +14,21 @@ import {
 	VaultProjectRepository,
 	type ProjectRepository,
 } from "./infrastructure/project-repository";
+import { TemplateRepository } from "./infrastructure/template-repository";
 import { ReportArchitectSettingTab, DEFAULT_SETTINGS, type ReportArchitectSettings } from "./settings";
 import {
 	REPORT_ARCHITECT_VIEW_TYPE,
 	ReportArchitectView,
 } from "./ui/views/report-architect-view";
+import {
+	TEMPLATE_EDITOR_VIEW_TYPE,
+	TemplateEditorView,
+} from "./ui/views/template-editor-view";
 
 export default class ReportArchitectPlugin extends Plugin {
 	settings: ReportArchitectSettings;
 	projectRepository: ProjectRepository;
+	templateRepository: TemplateRepository;
 	markdownComposer: MarkdownComposer;
 	linkResolver: LinkResolver;
 	htmlRenderer: HtmlRenderer;
@@ -36,6 +42,7 @@ export default class ReportArchitectPlugin extends Plugin {
 		await this.loadSettings();
 
 		this.projectRepository = new VaultProjectRepository(this.app);
+		this.templateRepository = new TemplateRepository(this.app, () => this.settings.templatesFolder);
 		this.markdownComposer = new MarkdownComposer(this.app);
 		this.linkResolver = new LinkResolver(this.app);
 		this.htmlRenderer = new HtmlRenderer(this.app, this);
@@ -48,15 +55,27 @@ export default class ReportArchitectPlugin extends Plugin {
 			REPORT_ARCHITECT_VIEW_TYPE,
 			(leaf) => new ReportArchitectView(leaf, this),
 		);
+		this.registerView(
+			TEMPLATE_EDITOR_VIEW_TYPE,
+			(leaf) => new TemplateEditorView(leaf, this),
+		);
 
-		this.addRibbonIcon("file-output", "Open emic report architect", () => {
-			void this.activateView();
+		this.addRibbonIcon("file-output", "Open report composer", () => {
+			void this.activateComposerView();
+		});
+		this.addRibbonIcon("palette", "Open style template editor", () => {
+			void this.activateTemplateEditorView();
 		});
 
 		this.addCommand({
-			id: "open-report-architect",
-			name: "Open workspace view",
-			callback: () => void this.activateView(),
+			id: "open-report-composer",
+			name: "Open report composer",
+			callback: () => void this.activateComposerView(),
+		});
+		this.addCommand({
+			id: "open-style-template-editor",
+			name: "Open style template editor",
+			callback: () => void this.activateTemplateEditorView(),
 		});
 
 		this.addCommand({
@@ -161,17 +180,34 @@ export default class ReportArchitectPlugin extends Plugin {
 		}
 	}
 
-	private async activateView(): Promise<void> {
+	private async activateComposerView(): Promise<void> {
 		const { workspace } = this.app;
 		let leaf = workspace.getLeavesOfType(REPORT_ARCHITECT_VIEW_TYPE)[0] ?? null;
 		if (!leaf) {
 			leaf = workspace.getRightLeaf(false);
 			if (!leaf) {
-				new Notice("Unable to open emic report architect view.");
+				new Notice("Unable to open report composer.");
 				return;
 			}
 			await leaf.setViewState({
 				type: REPORT_ARCHITECT_VIEW_TYPE,
+				active: true,
+			});
+		}
+		void workspace.revealLeaf(leaf);
+	}
+
+	private async activateTemplateEditorView(): Promise<void> {
+		const { workspace } = this.app;
+		let leaf = workspace.getLeavesOfType(TEMPLATE_EDITOR_VIEW_TYPE)[0] ?? null;
+		if (!leaf) {
+			leaf = workspace.getRightLeaf(false);
+			if (!leaf) {
+				new Notice("Unable to open style template editor.");
+				return;
+			}
+			await leaf.setViewState({
+				type: TEMPLATE_EDITOR_VIEW_TYPE,
 				active: true,
 			});
 		}
