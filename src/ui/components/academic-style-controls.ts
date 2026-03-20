@@ -125,6 +125,13 @@ export function renderAcademicStyleControls(
 				}),
 			);
 	}
+	new Setting(container)
+		.setName("Page background color")
+		.addColorPicker((picker) =>
+			picker
+				.setValue(t.pageBackgroundColor)
+				.onChange((v) => patchTokens({ pageBackgroundColor: v })),
+		);
 
 	sectionHeading(container, "Links");
 	new Setting(container)
@@ -346,6 +353,24 @@ export function renderAcademicStyleControls(
 				.setDynamicTooltip()
 				.onChange((v) => patchTokens({ preLineHeight: v })),
 		);
+	new Setting(container)
+		.setName("Code block spacing before (pt)")
+		.addSlider((slider) =>
+			slider
+				.setLimits(0, 24, 1)
+				.setValue(t.codeBlockSpacingBefore)
+				.setDynamicTooltip()
+				.onChange((v) => patchTokens({ codeBlockSpacingBefore: v })),
+		);
+	new Setting(container)
+		.setName("Code block spacing after (pt)")
+		.addSlider((slider) =>
+			slider
+				.setLimits(0, 24, 1)
+				.setValue(t.codeBlockSpacingAfter)
+				.setDynamicTooltip()
+				.onChange((v) => patchTokens({ codeBlockSpacingAfter: v })),
+		);
 
 	sectionHeading(container, "Math");
 	new Setting(container)
@@ -472,6 +497,31 @@ export function renderAcademicStyleControls(
 		.addText((text) =>
 			text.setValue(t.listBulletOffset).onChange((v) => patchTokens({ listBulletOffset: v })),
 		);
+	new Setting(container)
+		.setName("Bullet character")
+		.setDesc("Single character used for custom bullets.")
+		.addText((text) =>
+			text
+				.setValue(t.listBulletChar)
+				.onChange((v) => patchTokens({ listBulletChar: v.trim() || "\u2022" })),
+		);
+	new Setting(container)
+		.setName("Bullet vertical offset")
+		.setDesc("Top position for custom bullet, e.g. -0.05em.")
+		.addText((text) =>
+			text
+				.setValue(t.listBulletTopOffset)
+				.onChange((v) => patchTokens({ listBulletTopOffset: v.trim() || "-0.05em" })),
+		);
+	new Setting(container)
+		.setName("List indent per level (pt)")
+		.addSlider((slider) =>
+			slider
+				.setLimits(6, 36, 1)
+				.setValue(t.listIndentPerLevel)
+				.setDynamicTooltip()
+				.onChange((v) => patchTokens({ listIndentPerLevel: v })),
+		);
 
 	sectionHeading(container, "Blockquote and diagrams");
 	new Setting(container)
@@ -552,6 +602,15 @@ export function renderAcademicStyleControls(
 		);
 
 	// Background image (report / template)
+	new Setting(container)
+		.setName("Cover background opacity")
+		.addSlider((slider) =>
+			slider
+				.setLimits(0, 1, 0.05)
+				.setValue(t.coverBackgroundOpacity)
+				.setDynamicTooltip()
+				.onChange((v) => patchTokens({ coverBackgroundOpacity: v })),
+		);
 	renderReportBackgroundPicker(container, state.backgroundImage, (next) => {
 		state.backgroundImage = next;
 		options?.onPrintBackgroundChange?.(Boolean(next?.assetPath));

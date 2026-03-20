@@ -30,10 +30,10 @@ export class CssTemplateEngine {
 	position: relative !important;
 }
 .ra-render-frame ul li::before {
-	content: '•' !important;
+	content: '${t.listBulletChar}' !important;
 	position: absolute !important;
 	left: ${t.listBulletOffset} !important;
-	top: -0.05em !important;
+	top: ${t.listBulletTopOffset} !important;
 	font-size: 1.1em !important;
 }`
 			: "";
@@ -66,7 +66,7 @@ export class CssTemplateEngine {
 	tab-size: ${t.tabSize} !important;
 	--code-background: ${t.codeBlockBackground} !important;
 	--code-normal: ${t.codeNormalColor} !important;
-	background: #ffffff !important;
+	background: ${t.pageBackgroundColor} !important;
 	-webkit-print-color-adjust: exact;
 	print-color-adjust: exact;
 }
@@ -257,7 +257,7 @@ ${listBulletCss}
 	width: 100%;
 	height: 100%;
 	object-fit: cover;
-	opacity: 0.2;
+	opacity: ${t.coverBackgroundOpacity};
 }
 
 .ra-cover-content {

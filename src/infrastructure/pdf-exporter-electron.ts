@@ -5,6 +5,7 @@ import { existsSync } from "fs";
 import path from "path";
 import { promisify } from "util";
 import type { ReportProject } from "../domain/report-project";
+import { mergeStyleTokens } from "../domain/style-template";
 import { paginateHtml } from "./html-paginator";
 import { PageSizeResolver } from "./page-size-resolver";
 
@@ -53,7 +54,7 @@ export class PdfExporterElectron {
 
 		const page = this.pageSizeResolver.resolve(project);
 		const pages = paginateHtml(project, bundle.html);
-		const t = project.styleTemplate.tokens;
+		const t = mergeStyleTokens(project.styleTemplate.tokens);
 		const html = `<!DOCTYPE html>
 <html>
 <head>
@@ -61,14 +62,14 @@ export class PdfExporterElectron {
 <meta name="referrer" content="no-referrer" />
 <style>${bundle.css}</style>
 <style>
-html, body { margin: 0; background: #ffffff !important; }
+html, body { margin: 0; background: ${t.pageBackgroundColor} !important; }
 .ra-print-sheet {
 	width: ${page.width};
 	height: ${page.height};
 	margin: 0 auto;
 	page-break-after: always;
 	box-sizing: border-box;
-	background: #ffffff;
+	background: ${t.pageBackgroundColor};
 }
 .ra-export-page-body {
 	height: 100%;
