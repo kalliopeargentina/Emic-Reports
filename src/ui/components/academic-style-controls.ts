@@ -2,6 +2,7 @@ import { Setting } from "obsidian";
 import {
 	mergePrintRules,
 	mergeStyleTokens,
+	type PreWhiteSpaceMode,
 	type PrintRules,
 	type StyleTokens,
 	type TextAlignOption,
@@ -354,6 +355,16 @@ export function renderAcademicStyleControls(
 				.onChange((v) => patchTokens({ preLineHeight: v })),
 		);
 	new Setting(container)
+		.setName("Pre white space")
+		.setDesc("How fenced code blocks wrap in PDF/HTML export.")
+		.addDropdown((dropdown) =>
+			dropdown
+				.addOption("pre-wrap", "Wrap long lines")
+				.addOption("pre", "Do not wrap (strict)")
+				.setValue(t.preWhiteSpace)
+				.onChange((v) => patchTokens({ preWhiteSpace: v as PreWhiteSpaceMode })),
+		);
+	new Setting(container)
 		.setName("Code block spacing before (pt)")
 		.addSlider((slider) =>
 			slider
@@ -370,6 +381,141 @@ export function renderAcademicStyleControls(
 				.setValue(t.codeBlockSpacingAfter)
 				.setDynamicTooltip()
 				.onChange((v) => patchTokens({ codeBlockSpacingAfter: v })),
+		);
+
+	sectionHeading(container, "Callouts");
+	new Setting(container)
+		.setName("Left accent width (px)")
+		.addSlider((slider) =>
+			slider
+				.setLimits(2, 12, 1)
+				.setValue(t.calloutBorderLeftWidthPx)
+				.setDynamicTooltip()
+				.onChange((v) => patchTokens({ calloutBorderLeftWidthPx: v })),
+		);
+	new Setting(container)
+		.setName("Border radius (px)")
+		.addSlider((slider) =>
+			slider
+				.setLimits(0, 16, 1)
+				.setValue(t.calloutBorderRadiusPx)
+				.setDynamicTooltip()
+				.onChange((v) => patchTokens({ calloutBorderRadiusPx: v })),
+		);
+	new Setting(container)
+		.setName("Background tint strength (%)")
+		.setDesc("0 = white box, 100 = full accent tint.")
+		.addSlider((slider) =>
+			slider
+				.setLimits(0, 40, 1)
+				.setValue(Math.round(t.calloutSurfaceOpacity * 100))
+				.setDynamicTooltip()
+				.onChange((v) => patchTokens({ calloutSurfaceOpacity: v / 100 })),
+		);
+	new Setting(container)
+		.setName("Outer border mix (%)")
+		.setDesc("How strong the outer border color is toward the accent.")
+		.addSlider((slider) =>
+			slider
+				.setLimits(5, 80, 1)
+				.setValue(Math.round(t.calloutFrameBorderOpacity * 100))
+				.setDynamicTooltip()
+				.onChange((v) => patchTokens({ calloutFrameBorderOpacity: v / 100 })),
+		);
+	new Setting(container)
+		.setName("Title bar tint (%)")
+		.addSlider((slider) =>
+			slider
+				.setLimits(0, 40, 1)
+				.setValue(Math.round(t.calloutTitleBarOpacity * 100))
+				.setDynamicTooltip()
+				.onChange((v) => patchTokens({ calloutTitleBarOpacity: v / 100 })),
+		);
+	new Setting(container)
+		.setName("Title separator strength (%)")
+		.addSlider((slider) =>
+			slider
+				.setLimits(0, 60, 1)
+				.setValue(Math.round(t.calloutTitleSeparatorOpacity * 100))
+				.setDynamicTooltip()
+				.onChange((v) => patchTokens({ calloutTitleSeparatorOpacity: v / 100 })),
+		);
+	new Setting(container)
+		.setName("Vertical margin (px)")
+		.addSlider((slider) =>
+			slider
+				.setLimits(0, 48, 1)
+				.setValue(t.calloutVerticalMarginPx)
+				.setDynamicTooltip()
+				.onChange((v) => patchTokens({ calloutVerticalMarginPx: v })),
+		);
+	new Setting(container)
+		.setName("Title padding (CSS)")
+		.setDesc("For example 8px 14px.")
+		.addText((text) =>
+			text.setValue(t.calloutTitlePaddingCss).onChange((v) => patchTokens({ calloutTitlePaddingCss: v })),
+		);
+	new Setting(container)
+		.setName("Content padding (CSS)")
+		.setDesc("For example 10px 14px 12px.")
+		.addText((text) =>
+			text.setValue(t.calloutContentPaddingCss).onChange((v) => patchTokens({ calloutContentPaddingCss: v })),
+		);
+	new Setting(container)
+		.setName("Title size (× body)")
+		.addSlider((slider) =>
+			slider
+				.setLimits(0.65, 1.1, 0.01)
+				.setValue(t.calloutTitleFontScale)
+				.setDynamicTooltip()
+				.onChange((v) => patchTokens({ calloutTitleFontScale: v })),
+		);
+	new Setting(container)
+		.setName("Title letter-spacing (em)")
+		.addSlider((slider) =>
+			slider
+				.setLimits(0, 0.15, 0.005)
+				.setValue(t.calloutTitleLetterSpacingEm)
+				.setDynamicTooltip()
+				.onChange((v) => patchTokens({ calloutTitleLetterSpacingEm: v })),
+		);
+	new Setting(container)
+		.setName("Title and icon gap (px)")
+		.addSlider((slider) =>
+			slider
+				.setLimits(0, 20, 1)
+				.setValue(t.calloutTitleGapPx)
+				.setDynamicTooltip()
+				.onChange((v) => patchTokens({ calloutTitleGapPx: v })),
+		);
+	new Setting(container)
+		.setName("Icon opacity")
+		.addSlider((slider) =>
+			slider
+				.setLimits(0.3, 1, 0.05)
+				.setValue(t.calloutIconOpacity)
+				.setDynamicTooltip()
+				.onChange((v) => patchTokens({ calloutIconOpacity: v })),
+		);
+	new Setting(container)
+		.setName("Callout inner padding — DOCX (pt)")
+		.setDesc("Approximates padding inside the Word callout box.")
+		.addSlider((slider) =>
+			slider
+				.setLimits(4, 18, 1)
+				.setValue(t.calloutCellPaddingPt)
+				.setDynamicTooltip()
+				.onChange((v) => patchTokens({ calloutCellPaddingPt: v })),
+		);
+	new Setting(container)
+		.setName("DOCX frame border mix (%)")
+		.setDesc("Tint of non-accent borders in Word export.")
+		.addSlider((slider) =>
+			slider
+				.setLimits(5, 80, 1)
+				.setValue(Math.round(t.calloutDocxFrameBorderMix * 100))
+				.setDynamicTooltip()
+				.onChange((v) => patchTokens({ calloutDocxFrameBorderMix: v / 100 })),
 		);
 
 	sectionHeading(container, "Math");

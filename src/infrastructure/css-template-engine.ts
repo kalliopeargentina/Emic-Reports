@@ -1,8 +1,10 @@
 import type { ReportProject } from "../domain/report-project";
+import { CALLOUT_TYPE_RGB } from "../domain/callout-palette";
 import {
 	mergePrintRules,
 	mergeStyleTokens,
 	type HeadingNumberingMode,
+	type StyleTokens,
 } from "../domain/style-template";
 import { PageSizeResolver } from "./page-size-resolver";
 
@@ -23,7 +25,7 @@ export class CssTemplateEngine {
 				? `text-align: center; font-size: ${t.captionFontSize}pt; margin-bottom: ${t.captionMarginBottom}px;`
 				: `font-size: ${t.captionFontSize}pt;`;
 
-		const calloutCss = this.buildCalloutCss();
+		const calloutCss = this.buildCalloutCss(t);
 
 		const listBulletCss = t.listCustomBullet
 			? `
@@ -153,8 +155,8 @@ export class CssTemplateEngine {
 	border-width: ${t.preBorderWidth} !important;
 	border-color: ${t.preBorderColor} !important;
 	line-height: ${t.preLineHeight} !important;
-	white-space: pre-wrap !important;
-	overflow-wrap: anywhere !important;
+	white-space: ${t.preWhiteSpace} !important;
+	overflow-wrap: ${t.preWhiteSpace === "pre-wrap" ? "anywhere" : "normal"} !important;
 	page-break-inside: ${preBreak} !important;
 }
 
@@ -360,55 +362,30 @@ ${backgroundCss}
 	 * Obsidian callouts render as `.callout[data-callout="type"]` but export HTML does not include
 	 * app.css — we mirror default theme colors and borders so print/PDF preview shows colored boxes.
 	 */
-	private buildCalloutCss(): string {
-		const rgbByType: Record<string, string> = {
-			note: "68, 138, 255",
-			abstract: "0, 176, 255",
-			summary: "0, 176, 255",
-			tldr: "0, 176, 255",
-			info: "0, 184, 212",
-			todo: "68, 138, 255",
-			tip: "0, 191, 165",
-			hint: "0, 191, 165",
-			important: "0, 191, 165",
-			success: "0, 200, 83",
-			check: "0, 200, 83",
-			done: "0, 200, 83",
-			question: "255, 193, 7",
-			help: "255, 193, 7",
-			faq: "255, 193, 7",
-			warning: "255, 152, 0",
-			caution: "255, 152, 0",
-			attention: "255, 152, 0",
-			failure: "244, 67, 54",
-			fail: "244, 67, 54",
-			missing: "244, 67, 54",
-			danger: "255, 82, 82",
-			error: "255, 82, 82",
-			bug: "244, 67, 54",
-			example: "124, 77, 255",
-			quote: "158, 158, 158",
-			cite: "158, 158, 158",
-		};
-
-		const perType = Object.entries(rgbByType)
+	private buildCalloutCss(t: StyleTokens): string {
+		const noteRgb = CALLOUT_TYPE_RGB.note ?? "68, 138, 255";
+		const perType = Object.entries(CALLOUT_TYPE_RGB)
 			.map(
-				([k, v]) =>
-					`.ra-render-frame .callout[data-callout="${k}"] { --ra-callout-color: ${v}; }`,
+				([k, v]) => `.ra-render-frame .callout[data-callout="${k}"] { --ra-callout-color: ${v}; }`,
 			)
 			.join("\n");
+
+		const sf = Math.max(0, Math.min(1, t.calloutSurfaceOpacity));
+		const ff = Math.max(0, Math.min(1, t.calloutFrameBorderOpacity));
+		const tb = Math.max(0, Math.min(1, t.calloutTitleBarOpacity));
+		const ts = Math.max(0, Math.min(1, t.calloutTitleSeparatorOpacity));
 
 		return `
 ${perType}
 
 .ra-render-frame .callout {
-	--ra-callout-color: 68, 138, 255;
-	background-color: rgba(var(--ra-callout-color), 0.12) !important;
-	border: 1px solid rgba(var(--ra-callout-color), 0.35) !important;
-	border-left: 4px solid rgb(var(--ra-callout-color)) !important;
-	border-radius: 6px !important;
+	--ra-callout-color: ${noteRgb};
+	background-color: rgba(var(--ra-callout-color), ${sf}) !important;
+	border: 1px solid rgba(var(--ra-callout-color), ${ff}) !important;
+	border-left: ${t.calloutBorderLeftWidthPx}px solid rgb(var(--ra-callout-color)) !important;
+	border-radius: ${t.calloutBorderRadiusPx}px !important;
 	padding: 0 !important;
-	margin: 1em 0 !important;
+	margin: ${t.calloutVerticalMarginPx}px 0 !important;
 	overflow: hidden !important;
 	color: var(--ra-text) !important;
 	-webkit-print-color-adjust: exact !important;
@@ -418,15 +395,15 @@ ${perType}
 .ra-render-frame .callout .callout-title {
 	display: flex !important;
 	align-items: center !important;
-	gap: 8px !important;
-	padding: 8px 14px !important;
+	gap: ${t.calloutTitleGapPx}px !important;
+	padding: ${t.calloutTitlePaddingCss} !important;
 	font-weight: 600 !important;
-	font-size: 0.82em !important;
+	font-size: ${t.calloutTitleFontScale}em !important;
 	text-transform: uppercase !important;
-	letter-spacing: 0.04em !important;
+	letter-spacing: ${t.calloutTitleLetterSpacingEm}em !important;
 	color: rgb(var(--ra-callout-color)) !important;
-	background-color: rgba(var(--ra-callout-color), 0.1) !important;
-	border-bottom: 1px solid rgba(var(--ra-callout-color), 0.22) !important;
+	background-color: rgba(var(--ra-callout-color), ${tb}) !important;
+	border-bottom: 1px solid rgba(var(--ra-callout-color), ${ts}) !important;
 }
 
 .ra-render-frame .callout .callout-title-inner {
@@ -437,7 +414,7 @@ ${perType}
 	flex-shrink: 0 !important;
 	width: 1.1em !important;
 	height: 1.1em !important;
-	opacity: 0.85 !important;
+	opacity: ${t.calloutIconOpacity} !important;
 }
 
 .ra-render-frame .callout .callout-icon svg {
@@ -446,7 +423,7 @@ ${perType}
 }
 
 .ra-render-frame .callout .callout-content {
-	padding: 10px 14px 12px !important;
+	padding: ${t.calloutContentPaddingCss} !important;
 	font-size: var(--ra-body-size) !important;
 }
 

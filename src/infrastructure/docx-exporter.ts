@@ -16,6 +16,7 @@ import {
 	WidthType,
 } from "docx";
 import { TFile, requestUrl, type App } from "obsidian";
+import { CALLOUT_TYPE_RGB } from "../domain/callout-palette";
 import type { ReportProject } from "../domain/report-project";
 import { mergePrintRules, mergeStyleTokens, type StyleTokens } from "../domain/style-template";
 
@@ -39,37 +40,6 @@ type NumberingConfig = {
 	levels: NumberingLevelConfig[];
 };
 
-/** RGB strings "r, g, b" aligned with export callout CSS for consistent colors */
-const CALLOUT_RGB: Record<string, string> = {
-	note: "68, 138, 255",
-	abstract: "0, 176, 255",
-	summary: "0, 176, 255",
-	tldr: "0, 176, 255",
-	info: "0, 184, 212",
-	todo: "68, 138, 255",
-	tip: "0, 191, 165",
-	hint: "0, 191, 165",
-	important: "0, 191, 165",
-	success: "0, 200, 83",
-	check: "0, 200, 83",
-	done: "0, 200, 83",
-	question: "255, 193, 7",
-	help: "255, 193, 7",
-	faq: "255, 193, 7",
-	warning: "255, 152, 0",
-	caution: "255, 152, 0",
-	attention: "255, 152, 0",
-	failure: "244, 67, 54",
-	fail: "244, 67, 54",
-	missing: "244, 67, 54",
-	danger: "255, 82, 82",
-	error: "255, 82, 82",
-	bug: "244, 67, 54",
-	example: "124, 77, 255",
-	quote: "158, 158, 158",
-	cite: "158, 158, 158",
-};
-
 function parseRgbTriplet(rgb: string): [number, number, number] {
 	const parts = rgb.split(",").map((p) => Number(p.trim()));
 	const r = parts[0] ?? 68;
@@ -85,17 +55,16 @@ function rgbToDocxHex(r: number, g: number, b: number): string {
 		.toUpperCase();
 }
 
-function calloutFillHex(accentRgb: string): string {
+function calloutFillHex(accentRgb: string, surfaceOpacity: number): string {
 	const [r, g, b] = parseRgbTriplet(accentRgb);
-	/** ~12% tint toward accent (matches rgba(..., 0.12) over white) */
-	const t = 0.12;
+	const t = Math.max(0, Math.min(1, surfaceOpacity));
 	const mix = (c: number) => Math.round(255 * (1 - t) + c * t);
 	return rgbToDocxHex(mix(r), mix(g), mix(b));
 }
 
-function calloutBorderHex(accentRgb: string): string {
+function calloutBorderHex(accentRgb: string, mixTowardAccent: number): string {
 	const [r, g, b] = parseRgbTriplet(accentRgb);
-	const t = 0.35;
+	const t = Math.max(0, Math.min(1, mixTowardAccent));
 	const mix = (c: number) => Math.round(255 * (1 - t) + c * t);
 	return rgbToDocxHex(mix(r), mix(g), mix(b));
 }
@@ -455,12 +424,12 @@ export class DocxExporter {
 			idx += 1;
 		}
 
-		const rgbKey = CALLOUT_RGB[rawType] ? rawType : "note";
-		const rgb = CALLOUT_RGB[rgbKey] ?? CALLOUT_RGB.note ?? "68, 138, 255";
+		const rgbKey = CALLOUT_TYPE_RGB[rawType] ? rawType : "note";
+		const rgb = CALLOUT_TYPE_RGB[rgbKey] ?? CALLOUT_TYPE_RGB.note ?? "68, 138, 255";
 		const [r, g, b] = parseRgbTriplet(rgb);
 		const accentHex = rgbToDocxHex(r, g, b);
-		const fillHex = calloutFillHex(rgb);
-		const borderHex = calloutBorderHex(rgb);
+		const fillHex = calloutFillHex(rgb, tokens.calloutSurfaceOpacity);
+		const borderHex = calloutBorderHex(rgb, tokens.calloutDocxFrameBorderMix);
 
 		const typeLabel = rawType
 			.split(/[-_]/)
@@ -477,7 +446,9 @@ export class DocxExporter {
 						bold: true,
 						color: accentHex,
 						font: tokens.fontHeading,
-						size: this.ptToHalfPoint(Math.min(tokens.h4Size, tokens.fontSizeBody + 1)),
+						size: this.ptToHalfPoint(
+							Math.min(tokens.h4Size, tokens.fontSizeBody * tokens.calloutTitleFontScale),
+						),
 					}),
 				],
 				spacing: { after: bodyLines.some((l) => l.trim()) ? this.ptToTwips(4) : this.ptToTwips(2) },
@@ -505,7 +476,14 @@ export class DocxExporter {
 		}
 
 		const thin = { style: BorderStyle.SINGLE, size: 1, color: borderHex } as const;
-		const accentEdge = { style: BorderStyle.SINGLE, size: 24, color: accentHex } as const;
+		const leftBarEighths = Math.max(
+			8,
+			Math.min(96, Math.round(tokens.calloutBorderLeftWidthPx * 6)),
+		);
+		const accentEdge = { style: BorderStyle.SINGLE, size: leftBarEighths, color: accentHex } as const;
+		const padTwips = Math.round(tokens.calloutCellPaddingPt * 20);
+		const leftPadTwips =
+			padTwips + Math.round(tokens.calloutBorderLeftWidthPx * 15);
 
 		const table = new Table({
 			rows: [
@@ -522,7 +500,12 @@ export class DocxExporter {
 								right: thin,
 								bottom: thin,
 							},
-							margins: { top: 160, bottom: 160, left: 200, right: 160 },
+							margins: {
+								top: padTwips,
+								bottom: padTwips,
+								left: leftPadTwips,
+								right: padTwips,
+							},
 							children: cellChildren,
 						}),
 					],
