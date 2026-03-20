@@ -3,6 +3,7 @@ import type { DocxExporter } from "../infrastructure/docx-exporter";
 import type { MarkdownComposer } from "../infrastructure/markdown-composer";
 import type { LinkResolver } from "../infrastructure/link-resolver";
 import type { App, Component } from "obsidian";
+import { applyExportMarkdownTransforms } from "../infrastructure/export-markdown-transforms";
 
 export async function exportReportDocx(
 	app: App,
@@ -15,5 +16,6 @@ export async function exportReportDocx(
 ): Promise<void> {
 	const markdown = await composer.compose(project);
 	const resolvedMarkdown = await linkResolver.resolve(project, markdown, { skipHighlightHtml: true });
-	await docxExporter.export(project, resolvedMarkdown, outputPath);
+	const exportMarkdown = applyExportMarkdownTransforms(resolvedMarkdown);
+	await docxExporter.export(project, exportMarkdown, outputPath);
 }

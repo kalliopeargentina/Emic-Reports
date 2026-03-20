@@ -4,6 +4,7 @@ import type { LinkResolver } from "../infrastructure/link-resolver";
 import type { HtmlRenderer } from "../infrastructure/html-renderer";
 import type { CssTemplateEngine } from "../infrastructure/css-template-engine";
 import type { AssetResolver } from "../infrastructure/asset-resolver";
+import { applyExportMarkdownTransforms } from "../infrastructure/export-markdown-transforms";
 
 export interface PreviewBundle {
 	markdown: string;
@@ -21,11 +22,12 @@ export async function generatePreview(
 ): Promise<PreviewBundle> {
 	const markdown = await composer.compose(project);
 	const resolvedMarkdown = await linkResolver.resolve(project, markdown);
-	let html = await renderer.render(project, resolvedMarkdown);
+	const exportMarkdown = applyExportMarkdownTransforms(resolvedMarkdown);
+	let html = await renderer.render(project, exportMarkdown);
 	html = prependCoverHtml(project, html);
 	html = await assetResolver.resolveHtmlAssets(project, html);
 	const css = cssTemplateEngine.build(project);
-	return { markdown: resolvedMarkdown, html, css };
+	return { markdown: exportMarkdown, html, css };
 }
 
 function prependCoverHtml(project: ReportProject, html: string): string {

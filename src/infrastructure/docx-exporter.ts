@@ -375,6 +375,10 @@ export class DocxExporter {
 							svgAsset.height,
 							svgPngFallback?.byteLength ?? 0,
 						);
+						if (!isMermaid && svgPngFallback && isAcceptableDiagramPng(svgPngFallback)) {
+							// Word SVG support for some plugin diagrams is unreliable; embed PNG directly.
+							return await this.createDiagramPngParagraph(svgPngFallback, tokens);
+						}
 						return this.createDiagramSvgParagraph(
 							svgAsset.data,
 							svgPngFallback ?? SVG_FALLBACK_1PX_PNG,
