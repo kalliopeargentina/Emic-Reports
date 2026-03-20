@@ -1,0 +1,21 @@
+.ra-render-frame {
+	counter-reset: h2counter h3counter h4counter;
+}
+
+.ra-render-frame hr {
+	border: none;
+	page-break-after: always;
+}
+
+.ra-render-frame table,
+.ra-render-frame pre,
+.ra-render-frame img,
+.ra-render-frame svg,
+.ra-render-frame math-block {
+	page-break-inside: avoid;
+}
+
+.ra-render-frame figcaption {
+	font-size: 8pt;
+	text-align: center;
+}
