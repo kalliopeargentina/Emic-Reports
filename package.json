@@ -27,6 +27,7 @@
 	},
 	"dependencies": {
 		"docx": "^9.6.1",
+		"html-to-image": "^1.11.13",
 		"obsidian": "latest"
 	}
 }

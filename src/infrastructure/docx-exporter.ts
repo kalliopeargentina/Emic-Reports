@@ -15,9 +15,9 @@ import {
 	TextRun,
 	WidthType,
 } from "docx";
-import { TFile, requestUrl, type App } from "obsidian";
+import { TFile, requestUrl, type App, type Component } from "obsidian";
 import { CALLOUT_TYPE_RGB } from "../domain/callout-palette";
-import type { ReportProject } from "../domain/report-project";
+import { getPrimaryMarkdownSourcePath, type ReportProject } from "../domain/report-project";
 import { mergePrintRules, mergeStyleTokens, type StyleTokens } from "../domain/style-template";
 import {
 	defaultHighlightCssToDocxFill,
@@ -25,6 +25,8 @@ import {
 	normalizeHighlightColorToken,
 	segmentHighlightSyntax,
 } from "./highlight-export";
+import { contiguousUint8Array, isAcceptableDiagramPng, isValidPng } from "./binary-image";
+import { isPluginDiagramFenceLanguage, renderPluginFenceToPng } from "./plugin-diagram-render";
 
 type DocxBlock = Paragraph | Table;
 type NumberingLevelConfig = {
@@ -75,13 +77,31 @@ function calloutBorderHex(accentRgb: string, mixTowardAccent: number): string {
 	return rgbToDocxHex(mix(r), mix(g), mix(b));
 }
 
+/** First word after opening backticks/tildes, e.g. ```mermaid opts → mermaid */
+function parseFenceOpenerLang(line: string): string {
+	const t = line.trim();
+	const m = /^(`{3,}|~{3,})\s*(.*)$/.exec(t);
+	if (!m) return "";
+	const rest = (m[2] ?? "").trim();
+	if (!rest) return "";
+	return (rest.split(/\s+/)[0] ?? "").replace(/^[{}]+/, "");
+}
+
 export class DocxExporter {
-	constructor(private app: App) {}
+	constructor(
+		private app: App,
+		private component: Component,
+	) {}
 
 	async export(project: ReportProject, markdown: string, outputPath: string): Promise<void> {
 		const tokens = mergeStyleTokens(project.styleTemplate.tokens);
 		const printRules = mergePrintRules(project.styleTemplate.printRules);
-		const blocks = await this.markdownToBlocks(markdown, tokens, printRules.headingNumbering);
+		const blocks = await this.markdownToBlocks(
+			markdown,
+			project,
+			tokens,
+			printRules.headingNumbering,
+		);
 		const margins = this.resolveMargins(tokens);
 		const doc = new Document({
 			numbering: {
@@ -105,6 +125,7 @@ export class DocxExporter {
 
 	private async markdownToBlocks(
 		markdown: string,
+		project: ReportProject,
 		tokens: StyleTokens,
 		headingNumbering: "none" | "h2-h4" | "h1-h6",
 	): Promise<DocxBlock[]> {
@@ -112,6 +133,7 @@ export class DocxExporter {
 		const output: DocxBlock[] = [];
 		const headingCounters = [0, 0, 0, 0, 0, 0];
 		let inCodeBlock = false;
+		let codeFenceLang = "";
 		const codeLines: string[] = [];
 		let index = 0;
 
@@ -133,11 +155,15 @@ export class DocxExporter {
 
 			if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) {
 				if (inCodeBlock) {
-					output.push(this.createCodeBlockParagraph(codeLines.join("\n"), tokens));
+					output.push(
+						await this.finishFencedBlock(codeLines, codeFenceLang, project, tokens),
+					);
 					codeLines.length = 0;
+					codeFenceLang = "";
 					inCodeBlock = false;
 				} else {
 					inCodeBlock = true;
+					codeFenceLang = parseFenceOpenerLang(trimmed);
 				}
 				index += 1;
 				continue;
@@ -263,11 +289,97 @@ export class DocxExporter {
 			index += 1;
 		}
 
-		if (inCodeBlock && codeLines.length > 0) {
-			output.push(this.createCodeBlockParagraph(codeLines.join("\n"), tokens));
+		if (inCodeBlock) {
+			output.push(await this.finishFencedBlock(codeLines, codeFenceLang, project, tokens));
 		}
 
 		return output;
+	}
+
+	private async finishFencedBlock(
+		codeLines: string[],
+		codeFenceLang: string,
+		project: ReportProject,
+		tokens: StyleTokens,
+	): Promise<Paragraph> {
+		const body = codeLines.join("\n");
+		const sourcePath = getPrimaryMarkdownSourcePath(project);
+		if (isPluginDiagramFenceLanguage(codeFenceLang)) {
+			try {
+				let png = await renderPluginFenceToPng(
+					this.app,
+					this.component,
+					codeFenceLang,
+					body,
+					sourcePath,
+					720,
+					1,
+				);
+				if (!(await isAcceptableDiagramPng(png))) {
+					png = await renderPluginFenceToPng(
+						this.app,
+						this.component,
+						codeFenceLang,
+						body,
+						sourcePath,
+						960,
+						2,
+					);
+				}
+				if (await isAcceptableDiagramPng(png)) {
+					return await this.createDiagramPngParagraph(png!, tokens);
+				}
+			} catch {
+				/* Render/raster failed — fall back to code block */
+			}
+		}
+		return this.createCodeBlockParagraph(body, tokens);
+	}
+
+	private async createDiagramPngParagraph(bytes: Uint8Array, tokens: StyleTokens): Promise<Paragraph> {
+		const data = contiguousUint8Array(bytes);
+		const maxW = 560;
+		let width = maxW;
+		let height = Math.round(maxW * 0.62);
+		try {
+			const blob = new Blob([data], { type: "image/png" });
+			const url = URL.createObjectURL(blob);
+			try {
+				const dims = await new Promise<{ w: number; h: number }>((res, rej) => {
+					const img = new Image();
+					img.onload = () => res({ w: img.naturalWidth, h: img.naturalHeight });
+					img.onerror = () => rej(new Error("png decode"));
+					img.src = url;
+				});
+				if (dims.w > 0 && dims.h > 0) {
+					const scale = dims.w > maxW ? maxW / dims.w : 1;
+					width = Math.max(1, Math.round(dims.w * scale));
+					height = Math.max(1, Math.round(dims.h * scale));
+				}
+			} finally {
+				URL.revokeObjectURL(url);
+			}
+		} catch {
+			// use defaults
+		}
+
+		return new Paragraph({
+			children: [
+				new ImageRun({
+					data,
+					type: "png",
+					transformation: {
+						width,
+						height,
+					},
+				}),
+			],
+			alignment: AlignmentType.CENTER,
+			spacing: {
+				before: this.ptToTwips(tokens.codeBlockSpacingBefore),
+				after: this.ptToTwips(tokens.codeBlockSpacingAfter),
+			},
+		});
 	}
 
 	private inlineRuns(text: string, tokens: StyleTokens): Array<TextRun | ExternalHyperlink> {
@@ -660,10 +772,11 @@ export class DocxExporter {
 			});
 		}
 
+		const imageBytes = contiguousUint8Array(new Uint8Array(bin));
 		return new Paragraph({
 			children: [
 				new ImageRun({
-					data: new Uint8Array(bin),
+					data: imageBytes,
 					type: imageType,
 					transformation: { width, height },
 				}),

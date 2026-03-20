@@ -49,7 +49,7 @@ export default class ReportArchitectPlugin extends Plugin {
 		this.assetResolver = new AssetResolver(this.app);
 		this.cssTemplateEngine = new CssTemplateEngine();
 		this.pdfExporter = new PdfExporterElectron(this.app);
-		this.docxExporter = new DocxExporter(this.app);
+		this.docxExporter = new DocxExporter(this.app, this);
 
 		this.registerView(
 			REPORT_ARCHITECT_VIEW_TYPE,

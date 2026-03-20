@@ -1,5 +1,8 @@
 import { MarkdownRenderer, type Component, type App } from "obsidian";
-import type { ReportProject } from "../../domain/report-project";
+import { getPrimaryMarkdownSourcePath, type ReportProject } from "../../domain/report-project";
+import { waitForDomStable } from "../../infrastructure/dom-settle";
+import { markdownHasPluginDiagramFence } from "../../infrastructure/plugin-diagram-render";
+import { waitForSvgOrCanvasDeep } from "../../infrastructure/shadow-dom";
 import { PageSizeResolver } from "../../infrastructure/page-size-resolver";
 
 export class LivePreviewView {
@@ -30,7 +33,14 @@ export class LivePreviewView {
 		frame.style.setProperty("--ra-p-spacing", `${project.styleTemplate.tokens.paragraphSpacing}px`);
 		frame.style.setProperty("--ra-section-spacing", `${project.styleTemplate.tokens.sectionSpacing}px`);
 
-		const body = frame.createDiv({ cls: "ra-render-frame" });
-		await MarkdownRenderer.render(this.app, markdown, body, "", this.component);
+		const body = frame.createDiv({
+			cls: "ra-render-frame markdown-preview-view markdown-reading-view markdown-rendered",
+		});
+		const sourcePath = getPrimaryMarkdownSourcePath(project);
+		await MarkdownRenderer.render(this.app, markdown, body, sourcePath, this.component);
+		await waitForDomStable(body, { stableMs: 400, maxMs: 30000 });
+		if (markdownHasPluginDiagramFence(markdown)) {
+			await waitForSvgOrCanvasDeep(body, { maxMs: 20000, intervalMs: 50 });
+		}
 	}
 }

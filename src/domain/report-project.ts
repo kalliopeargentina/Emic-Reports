@@ -42,6 +42,14 @@ export interface ReportProject {
 	exportOptions: ExportProfile;
 }
 
+/** First included note path — used as `sourcePath` for MarkdownRenderer so plugin code blocks resolve. */
+export function getPrimaryMarkdownSourcePath(project: ReportProject): string {
+	const ordered = project.nodes
+		.filter((n) => n.include)
+		.sort((a, b) => a.order - b.order);
+	return ordered[0]?.notePath ?? "";
+}
+
 export function createEmptyProject(name: string): ReportProject {
 	const now = new Date().toISOString();
 	const id = globalThis.crypto?.randomUUID?.() ?? `project-${Date.now()}`;
