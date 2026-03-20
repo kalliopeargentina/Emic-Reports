@@ -156,7 +156,7 @@ export class DocxExporter {
 				continue;
 			}
 
-			if (trimmed.startsWith("```")) {
+			if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) {
 				if (inCodeBlock) {
 					output.push(this.createCodeBlockParagraph(codeLines.join("\n"), tokens));
 					codeLines.length = 0;
@@ -388,15 +388,32 @@ export class DocxExporter {
 	}
 
 	private createCodeBlockParagraph(text: string, tokens: StyleTokens): Paragraph {
-		return new Paragraph({
-			children: [
+		const lines = text.split("\n");
+		const runs: TextRun[] = [];
+		for (let i = 0; i < lines.length; i += 1) {
+			runs.push(
 				new TextRun({
-					text,
+					text: lines[i] ?? "",
 					font: tokens.fontMono,
 					color: this.toDocxColor(tokens.codeInlineColor),
 					size: this.ptToHalfPoint(tokens.codeFontSize),
+					break: i === 0 ? undefined : 1,
 				}),
-			],
+			);
+		}
+
+		return new Paragraph({
+			children: runs.length ? runs : [new TextRun("")],
+			border: {
+				top: { style: BorderStyle.SINGLE, size: 4, color: this.toDocxColor(tokens.preBorderColor) },
+				right: { style: BorderStyle.SINGLE, size: 4, color: this.toDocxColor(tokens.preBorderColor) },
+				bottom: { style: BorderStyle.SINGLE, size: 4, color: this.toDocxColor(tokens.preBorderColor) },
+				left: { style: BorderStyle.SINGLE, size: 4, color: this.toDocxColor(tokens.preBorderColor) },
+			},
+			shading: {
+				type: ShadingType.CLEAR,
+				fill: this.toDocxColor(tokens.preBackground),
+			},
 			spacing: {
 				before: this.ptToTwips(tokens.codeBlockSpacingBefore),
 				after: this.ptToTwips(tokens.codeBlockSpacingAfter),

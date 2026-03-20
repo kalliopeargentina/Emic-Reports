@@ -153,6 +153,8 @@ export class CssTemplateEngine {
 	border-width: ${t.preBorderWidth} !important;
 	border-color: ${t.preBorderColor} !important;
 	line-height: ${t.preLineHeight} !important;
+	white-space: pre-wrap !important;
+	overflow-wrap: anywhere !important;
 	page-break-inside: ${preBreak} !important;
 }
 

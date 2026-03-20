@@ -128,7 +128,8 @@ function findNextWikiEmbedOutsideFences(markdown: string): {
 		const end = lineEnd === -1 ? markdown.length : lineEnd;
 		const line = markdown.slice(lineStart, end);
 
-		if (line.trimStart().startsWith("```")) {
+		const trimmedStart = line.trimStart();
+		if (trimmedStart.startsWith("```") || trimmedStart.startsWith("~~~")) {
 			inFence = !inFence;
 			i = end === markdown.length ? end : end + 1;
 			continue;
@@ -157,13 +158,55 @@ function findNextWikiEmbedOutsideFences(markdown: string): {
 	return null;
 }
 
+function replaceWikiLinksOutsideCode(markdown: string, replace: (linkBody: string) => string): string {
+	const lines = markdown.split("\n");
+	let inFence = false;
+
+	return lines
+		.map((line) => {
+			const trimmedStart = line.trimStart();
+			if (trimmedStart.startsWith("```") || trimmedStart.startsWith("~~~")) {
+				inFence = !inFence;
+				return line;
+			}
+			if (inFence) return line;
+
+			// Avoid transforming wikilinks inside inline code spans (`...`).
+			let out = "";
+			let i = 0;
+			let inInlineCode = false;
+			while (i < line.length) {
+				const ch = line[i] ?? "";
+				if (ch === "`") {
+					inInlineCode = !inInlineCode;
+					out += ch;
+					i += 1;
+					continue;
+				}
+				if (!inInlineCode && ch === "[" && line[i + 1] === "[") {
+					const close = line.indexOf("]]", i + 2);
+					if (close > i) {
+						const body = line.slice(i + 2, close);
+						out += replace(body);
+						i = close + 2;
+						continue;
+					}
+				}
+				out += ch;
+				i += 1;
+			}
+			return out;
+		})
+		.join("\n");
+}
+
 export class LinkResolver {
 	constructor(private app: App) {}
 
 	async resolve(_project: ReportProject, markdown: string): Promise<string> {
 		const withEmbeds = await this.expandNoteEmbeds(markdown, _project, "", 0, new Set());
 
-		const withWikiLinks = withEmbeds.replace(/\[\[([^\]]+)\]\]/g, (_full, linkBody: string) => {
+		const withWikiLinks = replaceWikiLinksOutsideCode(withEmbeds, (linkBody: string) => {
 			const [rawPath, alias] = linkBody.split("|");
 			const normalizedPath = (rawPath ?? "").trim();
 			const file = this.app.metadataCache.getFirstLinkpathDest(normalizedPath, "");
