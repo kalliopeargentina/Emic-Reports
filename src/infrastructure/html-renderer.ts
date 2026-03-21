@@ -1,7 +1,9 @@
 import { Component, MarkdownRenderer, type App } from "obsidian";
+import { mergeStyleTokens } from "../domain/style-template";
 import { getPrimaryMarkdownSourcePath, type ReportProject } from "../domain/report-project";
 import {
 	CHART_CANVAS_WAIT_MAX_MS,
+	revealOffscreenHostForCanvasReadback,
 	replacePaintedCanvasesWithImages,
 	waitForChartCanvasPaint,
 } from "./chart-canvas-snapshot";
@@ -11,6 +13,11 @@ import {
 	markdownHasEmicChartsCanvasFence,
 	markdownHasPluginDiagramFence,
 } from "./plugin-diagram-render";
+import {
+	markdownLikelyHasMath,
+	replaceMathWithRasterImages,
+	waitForMathLayout,
+} from "./math-export";
 import { serializeElementHtml, waitForSvgOrCanvasDeep } from "./shadow-dom";
 
 /**
@@ -83,6 +90,20 @@ export class HtmlRenderer {
 					swap.replaced,
 					swap.total,
 				);
+			}
+			if (markdownLikelyHasMath(markdown)) {
+				await revealOffscreenHostForCanvasReadback(host);
+				await waitForMathLayout(host, 16000, true);
+				const t = mergeStyleTokens(project.styleTemplate.tokens);
+				const mathMaxW = Math.max(
+					240,
+					Math.round(OFFSCREEN_RENDER_WIDTH_PX * Math.max(0.4, Math.min(1.5, t.mathScalePercent / 100))),
+				);
+				const mathSwap = await replaceMathWithRasterImages(host, mathMaxW, {
+					inkColor: t.mathExportColor,
+				});
+				// eslint-disable-next-line no-console
+				console.info("[HTML-preview][math] rasterized nodes=%d", mathSwap.replaced);
 			}
 			return serializeElementHtml(host);
 		} finally {

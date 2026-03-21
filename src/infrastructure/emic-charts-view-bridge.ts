@@ -4,7 +4,7 @@
  */
 
 import type { App } from "obsidian";
-import { contiguousUint8Array, isValidPng } from "./binary-image";
+import { contiguousUint8Array, isValidPng, pngUint8ArrayToDataUrl } from "./binary-image";
 
 /** Must match Emic-Charts-View `manifest.json` id. */
 export const EMIC_CHARTS_VIEW_PLUGIN_ID = "emic-charts-view";
@@ -90,19 +90,6 @@ export async function tryEmicChartsViewExportPng(
 		);
 		return null;
 	}
-}
-
-/** Embed PNG bytes as a data URL for serialized HTML / PDF. */
-export function pngUint8ArrayToDataUrl(bytes: Uint8Array): string {
-	const chunk = 0x8000;
-	let binary = "";
-	for (let i = 0; i < bytes.length; i += chunk) {
-		binary += String.fromCharCode.apply(
-			null,
-			bytes.subarray(i, i + chunk) as unknown as number[],
-		);
-	}
-	return `data:image/png;base64,${btoa(binary)}`;
 }
 
 /**

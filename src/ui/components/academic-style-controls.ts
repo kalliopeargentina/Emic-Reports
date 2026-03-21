@@ -537,6 +537,12 @@ export function renderAcademicStyleControls(
 				.setDynamicTooltip()
 				.onChange((v) => patchTokens({ mathScalePercent: v })),
 		);
+	new Setting(container)
+		.setName("Math export color")
+		.setDesc("Ink color when formulas are rasterized for Word, PDF, and export HTML.")
+		.addColorPicker((picker) =>
+			picker.setValue(t.mathExportColor).onChange((v) => patchTokens({ mathExportColor: v })),
+		);
 
 	sectionHeading(container, "Figures and images");
 	new Setting(container)

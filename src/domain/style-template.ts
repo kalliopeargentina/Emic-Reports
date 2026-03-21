@@ -105,6 +105,8 @@ export interface StyleTokens {
 
 	/* --- Math --- */
 	mathScalePercent: number;
+	/** Ink color when math is rasterized to PNG (DOCX / PDF / export HTML). */
+	mathExportColor: string;
 
 	/* --- Figures --- */
 	imageMarginTop: number;
@@ -253,6 +255,7 @@ export const DEFAULT_STYLE_TOKENS: StyleTokens = {
 	calloutDocxFrameBorderMix: 0.35,
 
 	mathScalePercent: 90,
+	mathExportColor: "#0a0a0a",
 
 	imageMarginTop: 10,
 	imageMarginBottom: 5,
@@ -319,7 +322,7 @@ export function createAcademicExportTemplate(): StyleTemplate {
 	return {
 		id: "academic-export-v1",
 		name: "Academic export v1",
-		version: 4,
+		version: 5,
 		basePreset: "academic-export-v1",
 		tokens: { ...DEFAULT_STYLE_TOKENS },
 		printRules: { ...DEFAULT_PRINT_RULES },

@@ -30,6 +30,7 @@ import {
 	diagramPngDimsLabel,
 	isAcceptableDiagramPng,
 	isAcceptableDiagramPngRelaxed,
+	isAcceptableMathPng,
 } from "./binary-image";
 import {
 	isEmicChartsCanvasFenceLanguage,
@@ -40,6 +41,7 @@ import {
 } from "./plugin-diagram-render";
 import { rasterizeSvgWithResvg } from "./resvg-rasterizer";
 import { normalizeMermaidSvgForRaster } from "./mermaid-svg-normalize";
+import { renderDisplayMathMarkdownToPng, renderInlineMathMarkdownToPng } from "./math-export";
 
 type DocxBlock = Paragraph | Table;
 type NumberingLevelConfig = {
@@ -156,12 +158,15 @@ export class DocxExporter {
 		tokens: StyleTokens,
 		headingNumbering: "none" | "h2-h4" | "h1-h6",
 	): Promise<DocxBlock[]> {
+		const sourcePath = getPrimaryMarkdownSourcePath(project);
 		const lines = markdown.split("\n");
 		const output: DocxBlock[] = [];
 		const headingCounters = [0, 0, 0, 0, 0, 0];
 		let inCodeBlock = false;
 		let codeFenceLang = "";
 		const codeLines: string[] = [];
+		let inDisplayMath = false;
+		const displayMathLines: string[] = [];
 		let index = 0;
 		while (index < lines.length) {
 			const line = lines[index] ?? "";
@@ -201,6 +206,99 @@ export class DocxExporter {
 				continue;
 			}
 
+			if (inDisplayMath) {
+				if (trimmed === "$$") {
+					const tex = displayMathLines.join("\n");
+					displayMathLines.length = 0;
+					inDisplayMath = false;
+					const mathW = Math.max(
+						320,
+						Math.round(900 * Math.max(0.4, Math.min(1.5, tokens.mathScalePercent / 100))),
+					);
+					const png = await renderDisplayMathMarkdownToPng(
+						this.app,
+						this.component,
+						tex,
+						sourcePath,
+						mathW,
+						{ inkColor: tokens.mathExportColor },
+					);
+					if (png && isAcceptableMathPng(png)) {
+						// eslint-disable-next-line no-console
+						console.info("[DOCX-export] display math PNG bytes=%d", png.byteLength);
+						output.push(await this.createMathPngParagraph(png, tokens));
+					} else {
+						output.push(
+							new Paragraph({
+								children: [
+									new TextRun({
+										text: `$$\n${tex}\n$$`,
+										color: this.toDocxColor(tokens.colorText),
+										font: tokens.fontBody,
+										size: this.ptToHalfPoint(tokens.fontSizeBody),
+									}),
+								],
+								spacing: { before: this.ptToTwips(tokens.paragraphSpacing) },
+							}),
+						);
+					}
+				} else {
+					displayMathLines.push(line);
+				}
+				index += 1;
+				continue;
+			}
+
+			if (trimmed.startsWith("$$")) {
+				if (trimmed === "$$") {
+					inDisplayMath = true;
+					displayMathLines.length = 0;
+					index += 1;
+					continue;
+				}
+				if (trimmed.endsWith("$$") && trimmed.length > 4) {
+					const inner = trimmed.slice(2, -2).trim();
+					const mathW = Math.max(
+						320,
+						Math.round(900 * Math.max(0.4, Math.min(1.5, tokens.mathScalePercent / 100))),
+					);
+					const png = await renderDisplayMathMarkdownToPng(
+						this.app,
+						this.component,
+						inner,
+						sourcePath,
+						mathW,
+						{ inkColor: tokens.mathExportColor },
+					);
+					if (png && isAcceptableMathPng(png)) {
+						// eslint-disable-next-line no-console
+						console.info("[DOCX-export] display math PNG (single-line fence) bytes=%d", png.byteLength);
+						output.push(await this.createMathPngParagraph(png, tokens));
+					} else {
+						output.push(
+							new Paragraph({
+								children: [
+									new TextRun({
+										text: trimmed,
+										color: this.toDocxColor(tokens.colorText),
+										font: tokens.fontBody,
+										size: this.ptToHalfPoint(tokens.fontSizeBody),
+									}),
+								],
+								spacing: { before: this.ptToTwips(tokens.paragraphSpacing) },
+							}),
+						);
+					}
+					index += 1;
+					continue;
+				}
+				inDisplayMath = true;
+				displayMathLines.length = 0;
+				displayMathLines.push(trimmed.slice(2));
+				index += 1;
+				continue;
+			}
+
 			if (!trimmed) {
 				output.push(new Paragraph({ children: [new TextRun("")] }));
 				index += 1;
@@ -213,14 +311,14 @@ export class DocxExporter {
 				continue;
 			}
 
-			const table = this.tryParseTable(lines, index, tokens);
+			const table = await this.tryParseTableAsync(lines, index, tokens, project);
 			if (table) {
 				output.push(table.table);
 				index = table.nextIndex;
 				continue;
 			}
 
-			const callout = this.tryParseCallout(lines, index, tokens);
+			const callout = await this.tryParseCalloutAsync(lines, index, tokens, project);
 			if (callout) {
 				output.push(callout.table);
 				index = callout.nextIndex;
@@ -269,7 +367,7 @@ export class DocxExporter {
 				const quoteText = quoteMatch[1] ?? "";
 				output.push(
 					new Paragraph({
-						children: this.inlineRuns(quoteText, tokens),
+						children: await this.inlineRunsAsync(quoteText, tokens, project),
 						alignment: this.toAlignment(tokens.blockquoteTextAlign),
 						spacing: {
 							before: this.ptToTwips(tokens.blockquoteMarginY),
@@ -291,7 +389,7 @@ export class DocxExporter {
 				const isOrdered = /^\d+\.$/.test(marker);
 				output.push(
 					new Paragraph({
-						children: this.inlineRuns(listText, tokens),
+						children: await this.inlineRunsAsync(listText, tokens, project),
 						alignment: this.toAlignment("left"),
 						numbering: {
 							reference: isOrdered ? "ra-ordered" : "ra-bullet",
@@ -305,7 +403,7 @@ export class DocxExporter {
 
 			output.push(
 				new Paragraph({
-					children: this.inlineRuns(trimmed, tokens),
+					children: await this.inlineRunsAsync(trimmed, tokens, project),
 					alignment: this.toAlignment(tokens.paragraphTextAlign),
 					spacing: {
 						before: this.ptToTwips(tokens.paragraphSpacing),
@@ -313,6 +411,22 @@ export class DocxExporter {
 				}),
 			);
 			index += 1;
+		}
+
+		if (inDisplayMath) {
+			output.push(
+				new Paragraph({
+					children: [
+						new TextRun({
+							text: `$$\n${displayMathLines.join("\n")}`,
+							color: this.toDocxColor(tokens.colorText),
+							font: tokens.fontBody,
+							size: this.ptToHalfPoint(tokens.fontSizeBody),
+						}),
+					],
+					spacing: { before: this.ptToTwips(tokens.paragraphSpacing) },
+				}),
+			);
 		}
 
 		if (inCodeBlock) {
@@ -628,14 +742,185 @@ export class DocxExporter {
 		});
 	}
 
-	private inlineRuns(text: string, tokens: StyleTokens): Array<TextRun | ExternalHyperlink> {
+	private async createMathPngParagraph(bytes: Uint8Array, tokens: StyleTokens): Promise<Paragraph> {
+		const data = contiguousUint8Array(bytes);
+		const maxW = Math.max(60, Math.min(560, Math.round(560 * (tokens.mathScalePercent / 100))));
+		let width = maxW;
+		let height = Math.round(maxW * 0.35);
+		try {
+			const blob = new Blob([data], { type: "image/png" });
+			const url = URL.createObjectURL(blob);
+			try {
+				const dims = await new Promise<{ w: number; h: number }>((res, rej) => {
+					const img = new Image();
+					img.onload = () => res({ w: img.naturalWidth, h: img.naturalHeight });
+					img.onerror = () => rej(new Error("png decode"));
+					img.src = url;
+				});
+				if (dims.w > 0 && dims.h > 0) {
+					const scale = dims.w > maxW ? maxW / dims.w : 1;
+					width = Math.max(1, Math.round(dims.w * scale));
+					height = Math.max(1, Math.round(dims.h * scale));
+				}
+			} finally {
+				URL.revokeObjectURL(url);
+			}
+		} catch {
+			// use defaults
+		}
+
+		return new Paragraph({
+			children: [
+				new ImageRun({
+					data,
+					type: "png",
+					transformation: { width, height },
+				}),
+			],
+			alignment: AlignmentType.CENTER,
+			spacing: {
+				before: this.ptToTwips(tokens.paragraphSpacing),
+				after: this.ptToTwips(tokens.paragraphSpacing),
+			},
+		});
+	}
+
+	private inlineMathRasterWidthPx(tokens: StyleTokens): number {
+		return Math.max(
+			200,
+			Math.round(640 * Math.max(0.35, Math.min(1.2, tokens.mathScalePercent / 100))),
+		);
+	}
+
+	private async createInlineMathImageRun(bytes: Uint8Array, tokens: StyleTokens): Promise<ImageRun> {
+		const data = contiguousUint8Array(bytes);
+		const maxW = Math.max(
+			20,
+			Math.min(320, Math.round(tokens.fontSizeBody * 28 * (tokens.mathScalePercent / 100))),
+		);
+		let width = maxW;
+		let height = Math.round(maxW * 0.45);
+		try {
+			const blob = new Blob([data], { type: "image/png" });
+			const url = URL.createObjectURL(blob);
+			try {
+				const dims = await new Promise<{ w: number; h: number }>((res, rej) => {
+					const img = new Image();
+					img.onload = () => res({ w: img.naturalWidth, h: img.naturalHeight });
+					img.onerror = () => rej(new Error("png decode"));
+					img.src = url;
+				});
+				if (dims.w > 0 && dims.h > 0) {
+					const scale = dims.w > maxW ? maxW / dims.w : 1;
+					width = Math.max(1, Math.round(dims.w * scale));
+					height = Math.max(1, Math.round(dims.h * scale));
+				}
+			} finally {
+				URL.revokeObjectURL(url);
+			}
+		} catch {
+			// use defaults
+		}
+		return new ImageRun({
+			data,
+			type: "png",
+			transformation: { width, height },
+		});
+	}
+
+	/**
+	 * Plain text slice that may contain `$...$` inline math (not `$$`).
+	 */
+	private async plainSliceWithMathAsync(
+		slice: string,
+		tokens: StyleTokens,
+		highlightFill: string | undefined,
+		project: ReportProject,
+	): Promise<Array<TextRun | ImageRun>> {
+		if (!slice) return [];
+		const hl =
+			highlightFill !== undefined ? { type: ShadingType.CLEAR, fill: highlightFill } : undefined;
+		const runs: Array<TextRun | ImageRun> = [];
+		const sourcePath = getPrimaryMarkdownSourcePath(project);
+		const mathW = this.inlineMathRasterWidthPx(tokens);
+		const re = /\$(?!\$)((?:[^$\\]|\\.)+?)\$(?!\$)/g;
+		let last = 0;
+		let m: RegExpExecArray | null;
+		while ((m = re.exec(slice)) !== null) {
+			if (m.index > last) {
+				runs.push(
+					new TextRun({
+						text: slice.slice(last, m.index),
+						color: this.toDocxColor(tokens.colorText),
+						font: tokens.fontBody,
+						size: this.ptToHalfPoint(tokens.fontSizeBody),
+						shading: hl,
+					}),
+				);
+			}
+			const raw = m[0] ?? "";
+			const tex = (m[1] ?? "").trim();
+			if (tex) {
+				const png = await renderInlineMathMarkdownToPng(
+					this.app,
+					this.component,
+					tex,
+					sourcePath,
+					mathW,
+					{ inkColor: tokens.mathExportColor },
+				);
+				if (png && isAcceptableMathPng(png)) {
+					runs.push(await this.createInlineMathImageRun(png, tokens));
+				} else {
+					runs.push(
+						new TextRun({
+							text: raw,
+							color: this.toDocxColor(tokens.colorText),
+							font: tokens.fontBody,
+							size: this.ptToHalfPoint(tokens.fontSizeBody),
+							shading: hl,
+						}),
+					);
+				}
+			} else {
+				runs.push(
+					new TextRun({
+						text: raw,
+						color: this.toDocxColor(tokens.colorText),
+						font: tokens.fontBody,
+						size: this.ptToHalfPoint(tokens.fontSizeBody),
+						shading: hl,
+					}),
+				);
+			}
+			last = re.lastIndex;
+		}
+		if (last < slice.length) {
+			runs.push(
+				new TextRun({
+					text: slice.slice(last),
+					color: this.toDocxColor(tokens.colorText),
+					font: tokens.fontBody,
+					size: this.ptToHalfPoint(tokens.fontSizeBody),
+					shading: hl,
+				}),
+			);
+		}
+		return runs;
+	}
+
+	private async inlineRunsAsync(
+		text: string,
+		tokens: StyleTokens,
+		project: ReportProject,
+	): Promise<Array<TextRun | ExternalHyperlink | ImageRun>> {
 		const segs = segmentHighlightSyntax(text);
-		const out: Array<TextRun | ExternalHyperlink> = [];
+		const out: Array<TextRun | ExternalHyperlink | ImageRun> = [];
 		const defaultFill = defaultHighlightCssToDocxFill(tokens.highlightDefaultBackground);
 
 		for (const seg of segs) {
 			if (seg.kind === "text") {
-				if (seg.text) out.push(...this.inlineRunsPlain(seg.text, tokens, undefined));
+				if (seg.text) out.push(...(await this.inlineRunsPlainAsync(seg.text, tokens, undefined, project)));
 				continue;
 			}
 			let fill = defaultFill;
@@ -643,18 +928,19 @@ export class DocxExporter {
 				const css = normalizeHighlightColorToken(seg.colorToken);
 				if (css) fill = highlightCssToDocxFill(css, defaultFill);
 			}
-			out.push(...this.inlineRunsPlain(seg.text, tokens, fill));
+			out.push(...(await this.inlineRunsPlainAsync(seg.text, tokens, fill, project)));
 		}
 
 		return out.length ? out : [new TextRun("")];
 	}
 
-	private inlineRunsPlain(
+	private async inlineRunsPlainAsync(
 		text: string,
 		tokens: StyleTokens,
 		highlightFill: string | undefined,
-	): Array<TextRun | ExternalHyperlink> {
-		const runs: Array<TextRun | ExternalHyperlink> = [];
+		project: ReportProject,
+	): Promise<Array<TextRun | ExternalHyperlink | ImageRun>> {
+		const runs: Array<TextRun | ExternalHyperlink | ImageRun> = [];
 		const hl =
 			highlightFill !== undefined ? { type: ShadingType.CLEAR, fill: highlightFill } : undefined;
 		const pattern = /(\[[^\]]+\]\(([^)]+)\)|`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|~~[^~]+~~)/g;
@@ -664,13 +950,12 @@ export class DocxExporter {
 			const start = match.index;
 			if (start > index) {
 				runs.push(
-					new TextRun({
-						text: text.slice(index, start),
-						color: this.toDocxColor(tokens.colorText),
-						font: tokens.fontBody,
-						size: this.ptToHalfPoint(tokens.fontSizeBody),
-						shading: hl,
-					}),
+					...(await this.plainSliceWithMathAsync(
+						text.slice(index, start),
+						tokens,
+						highlightFill,
+						project,
+					)),
 				);
 			}
 			const token = match[0] ?? "";
@@ -742,16 +1027,13 @@ export class DocxExporter {
 		}
 		if (index < text.length) {
 			runs.push(
-				new TextRun({
-					text: text.slice(index),
-					color: this.toDocxColor(tokens.colorText),
-					font: tokens.fontBody,
-					size: this.ptToHalfPoint(tokens.fontSizeBody),
-					shading: hl,
-				}),
+				...(await this.plainSliceWithMathAsync(text.slice(index), tokens, highlightFill, project)),
 			);
 		}
-		return runs.length ? runs : [new TextRun({ text: "", shading: hl })];
+		if (runs.length === 0) {
+			return [new TextRun({ text: "", shading: hl })];
+		}
+		return runs;
 	}
 
 	private createCodeBlockParagraph(text: string, tokens: StyleTokens): Paragraph {
@@ -792,11 +1074,12 @@ export class DocxExporter {
 	 * Obsidian callouts: first line `> [!type] Optional title`, then `> ...` body lines.
 	 * Renders as a single-row table with tinted background and accent left border (DOCX has no native callouts).
 	 */
-	private tryParseCallout(
+	private async tryParseCalloutAsync(
 		lines: string[],
 		start: number,
 		tokens: StyleTokens,
-	): { table: Table; nextIndex: number } | null {
+		project: ReportProject,
+	): Promise<{ table: Table; nextIndex: number } | null> {
 		const firstRaw = lines[start] ?? "";
 		const first = firstRaw.trim();
 		const calloutMatch = /^>\s*\[!([^\]]+)\]\s*(.*)$/.exec(first);
@@ -866,7 +1149,7 @@ export class DocxExporter {
 			}
 			cellChildren.push(
 				new Paragraph({
-					children: this.inlineRuns(trimmedBody, tokens),
+					children: await this.inlineRunsAsync(trimmedBody, tokens, project),
 					alignment: this.toAlignment(tokens.paragraphTextAlign),
 					spacing: { before: 0, after: this.ptToTwips(Math.min(tokens.paragraphSpacing, 6)) },
 				}),
@@ -915,11 +1198,12 @@ export class DocxExporter {
 		return { table, nextIndex: idx };
 	}
 
-	private tryParseTable(
+	private async tryParseTableAsync(
 		lines: string[],
 		start: number,
 		tokens: StyleTokens,
-	): { table: Table; nextIndex: number } | null {
+		project: ReportProject,
+	): Promise<{ table: Table; nextIndex: number } | null> {
 		const header = (lines[start] ?? "").trim();
 		const separator = (lines[start + 1] ?? "").trim();
 		if (!header.includes("|")) return null;
@@ -929,15 +1213,16 @@ export class DocxExporter {
 		if (rows.length === 0) return null;
 
 		const alignments = this.parseTableAlignment(separator);
-		const tableRows = rows.map((row, rowIndex) => {
-			const cells = this.splitTableRow(row);
-			return new TableRow({
-				children: cells.map(
-					(cell, cellIndex) =>
-						new TableCell({
+		const tableRows = await Promise.all(
+			rows.map(async (row, rowIndex) => {
+				const cells = this.splitTableRow(row);
+				const tableCells = await Promise.all(
+					cells.map(async (cell, cellIndex) => {
+						const children = await this.inlineRunsAsync(cell, tokens, project);
+						return new TableCell({
 							children: [
 								new Paragraph({
-									children: this.inlineRuns(cell, tokens),
+									children,
 									alignment: alignments[cellIndex] ?? AlignmentType.LEFT,
 								}),
 							],
@@ -951,10 +1236,12 @@ export class DocxExporter {
 								left: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
 								right: { style: BorderStyle.NONE, size: 0, color: "FFFFFF" },
 							},
-						}),
-				),
-			});
-		});
+						});
+					}),
+				);
+				return new TableRow({ children: tableCells });
+			}),
+		);
 
 		return {
 			table: new Table({

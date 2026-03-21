@@ -66,3 +66,24 @@ export function diagramPngDimsLabel(data: Uint8Array): string {
 	return dim ? `${dim.w}x${dim.h}` : "unknown";
 }
 
+/** Small inline formulas can be shorter than diagram thresholds. */
+export function isAcceptableMathPng(data: Uint8Array): boolean {
+	if (!isValidPng(data) || data.byteLength < 120) return false;
+	const dim = pngIhdrSize(data);
+	if (!dim) return false;
+	return dim.w >= 12 && dim.h >= 10 && dim.w * dim.h >= 120;
+}
+
+/** `data:image/png;base64,...` for embedding in HTML (chunked for large buffers). */
+export function pngUint8ArrayToDataUrl(bytes: Uint8Array): string {
+	const chunk = 0x8000;
+	let binary = "";
+	for (let i = 0; i < bytes.length; i += chunk) {
+		binary += String.fromCharCode.apply(
+			null,
+			bytes.subarray(i, i + chunk) as unknown as number[],
+		);
+	}
+	return `data:image/png;base64,${btoa(binary)}`;
+}
+

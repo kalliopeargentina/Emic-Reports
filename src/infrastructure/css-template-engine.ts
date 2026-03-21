@@ -175,10 +175,12 @@ export class CssTemplateEngine {
 
 .ra-render-frame mjx-math {
 	font-size: ${t.mathScalePercent}% !important;
+	color: ${t.mathExportColor} !important;
 }
 
 .ra-render-frame math-block {
 	page-break-before: avoid !important;
+	color: ${t.mathExportColor} !important;
 }
 
 .ra-render-frame svg,
