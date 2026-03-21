@@ -31,6 +31,7 @@ import {
 	isAcceptableDiagramPng,
 	isAcceptableDiagramPngRelaxed,
 	isAcceptableMathPng,
+	pngIhdrSize,
 } from "./binary-image";
 import {
 	isEmicChartsCanvasFenceLanguage,
@@ -41,7 +42,7 @@ import {
 } from "./plugin-diagram-render";
 import { rasterizeSvgWithResvg } from "./resvg-rasterizer";
 import { normalizeMermaidSvgForRaster } from "./mermaid-svg-normalize";
-import { renderDisplayMathMarkdownToPng, renderInlineMathMarkdownToPng } from "./math-export";
+import { DocxMathRasterSession } from "./docx-math-raster-session";
 
 type DocxBlock = Paragraph | Table;
 type NumberingLevelConfig = {
@@ -125,11 +126,14 @@ export class DocxExporter {
 	async export(project: ReportProject, markdown: string, outputPath: string): Promise<void> {
 		const tokens = mergeStyleTokens(project.styleTemplate.tokens);
 		const printRules = mergePrintRules(project.styleTemplate.printRules);
+		const sourcePath = getPrimaryMarkdownSourcePath(project);
+		const mathSession = new DocxMathRasterSession(this.app, this.component, sourcePath, tokens);
 		const blocks = await this.markdownToBlocks(
 			markdown,
 			project,
 			tokens,
 			printRules.headingNumbering,
+			mathSession,
 		);
 		const margins = this.resolveMargins(tokens);
 		const doc = new Document({
@@ -157,8 +161,8 @@ export class DocxExporter {
 		project: ReportProject,
 		tokens: StyleTokens,
 		headingNumbering: "none" | "h2-h4" | "h1-h6",
+		mathSession: DocxMathRasterSession,
 	): Promise<DocxBlock[]> {
-		const sourcePath = getPrimaryMarkdownSourcePath(project);
 		const lines = markdown.split("\n");
 		const output: DocxBlock[] = [];
 		const headingCounters = [0, 0, 0, 0, 0, 0];
@@ -211,22 +215,11 @@ export class DocxExporter {
 					const tex = displayMathLines.join("\n");
 					displayMathLines.length = 0;
 					inDisplayMath = false;
-					const mathW = Math.max(
-						320,
-						Math.round(900 * Math.max(0.4, Math.min(1.5, tokens.mathScalePercent / 100))),
-					);
-					const png = await renderDisplayMathMarkdownToPng(
-						this.app,
-						this.component,
-						tex,
-						sourcePath,
-						mathW,
-						{ inkColor: tokens.mathExportColor },
-					);
+					const png = await mathSession.getOrRenderDisplay(tex);
 					if (png && isAcceptableMathPng(png)) {
 						// eslint-disable-next-line no-console
 						console.info("[DOCX-export] display math PNG bytes=%d", png.byteLength);
-						output.push(await this.createMathPngParagraph(png, tokens));
+						output.push(this.createMathPngParagraph(png, tokens));
 					} else {
 						output.push(
 							new Paragraph({
@@ -258,22 +251,11 @@ export class DocxExporter {
 				}
 				if (trimmed.endsWith("$$") && trimmed.length > 4) {
 					const inner = trimmed.slice(2, -2).trim();
-					const mathW = Math.max(
-						320,
-						Math.round(900 * Math.max(0.4, Math.min(1.5, tokens.mathScalePercent / 100))),
-					);
-					const png = await renderDisplayMathMarkdownToPng(
-						this.app,
-						this.component,
-						inner,
-						sourcePath,
-						mathW,
-						{ inkColor: tokens.mathExportColor },
-					);
+					const png = await mathSession.getOrRenderDisplay(inner);
 					if (png && isAcceptableMathPng(png)) {
 						// eslint-disable-next-line no-console
 						console.info("[DOCX-export] display math PNG (single-line fence) bytes=%d", png.byteLength);
-						output.push(await this.createMathPngParagraph(png, tokens));
+						output.push(this.createMathPngParagraph(png, tokens));
 					} else {
 						output.push(
 							new Paragraph({
@@ -311,14 +293,14 @@ export class DocxExporter {
 				continue;
 			}
 
-			const table = await this.tryParseTableAsync(lines, index, tokens, project);
+			const table = await this.tryParseTableAsync(lines, index, tokens, mathSession);
 			if (table) {
 				output.push(table.table);
 				index = table.nextIndex;
 				continue;
 			}
 
-			const callout = await this.tryParseCalloutAsync(lines, index, tokens, project);
+			const callout = await this.tryParseCalloutAsync(lines, index, tokens, mathSession);
 			if (callout) {
 				output.push(callout.table);
 				index = callout.nextIndex;
@@ -367,7 +349,7 @@ export class DocxExporter {
 				const quoteText = quoteMatch[1] ?? "";
 				output.push(
 					new Paragraph({
-						children: await this.inlineRunsAsync(quoteText, tokens, project),
+						children: await this.inlineRunsAsync(quoteText, tokens, mathSession),
 						alignment: this.toAlignment(tokens.blockquoteTextAlign),
 						spacing: {
 							before: this.ptToTwips(tokens.blockquoteMarginY),
@@ -389,7 +371,7 @@ export class DocxExporter {
 				const isOrdered = /^\d+\.$/.test(marker);
 				output.push(
 					new Paragraph({
-						children: await this.inlineRunsAsync(listText, tokens, project),
+						children: await this.inlineRunsAsync(listText, tokens, mathSession),
 						alignment: this.toAlignment("left"),
 						numbering: {
 							reference: isOrdered ? "ra-ordered" : "ra-bullet",
@@ -403,7 +385,7 @@ export class DocxExporter {
 
 			output.push(
 				new Paragraph({
-					children: await this.inlineRunsAsync(trimmed, tokens, project),
+					children: await this.inlineRunsAsync(trimmed, tokens, mathSession),
 					alignment: this.toAlignment(tokens.paragraphTextAlign),
 					spacing: {
 						before: this.ptToTwips(tokens.paragraphSpacing),
@@ -742,31 +724,16 @@ export class DocxExporter {
 		});
 	}
 
-	private async createMathPngParagraph(bytes: Uint8Array, tokens: StyleTokens): Promise<Paragraph> {
+	private createMathPngParagraph(bytes: Uint8Array, tokens: StyleTokens): Paragraph {
 		const data = contiguousUint8Array(bytes);
 		const maxW = Math.max(60, Math.min(560, Math.round(560 * (tokens.mathScalePercent / 100))));
 		let width = maxW;
 		let height = Math.round(maxW * 0.35);
-		try {
-			const blob = new Blob([data], { type: "image/png" });
-			const url = URL.createObjectURL(blob);
-			try {
-				const dims = await new Promise<{ w: number; h: number }>((res, rej) => {
-					const img = new Image();
-					img.onload = () => res({ w: img.naturalWidth, h: img.naturalHeight });
-					img.onerror = () => rej(new Error("png decode"));
-					img.src = url;
-				});
-				if (dims.w > 0 && dims.h > 0) {
-					const scale = dims.w > maxW ? maxW / dims.w : 1;
-					width = Math.max(1, Math.round(dims.w * scale));
-					height = Math.max(1, Math.round(dims.h * scale));
-				}
-			} finally {
-				URL.revokeObjectURL(url);
-			}
-		} catch {
-			// use defaults
+		const dim = pngIhdrSize(data);
+		if (dim && dim.w > 0 && dim.h > 0) {
+			const scale = dim.w > maxW ? maxW / dim.w : 1;
+			width = Math.max(1, Math.round(dim.w * scale));
+			height = Math.max(1, Math.round(dim.h * scale));
 		}
 
 		return new Paragraph({
@@ -785,14 +752,7 @@ export class DocxExporter {
 		});
 	}
 
-	private inlineMathRasterWidthPx(tokens: StyleTokens): number {
-		return Math.max(
-			200,
-			Math.round(640 * Math.max(0.35, Math.min(1.2, tokens.mathScalePercent / 100))),
-		);
-	}
-
-	private async createInlineMathImageRun(bytes: Uint8Array, tokens: StyleTokens): Promise<ImageRun> {
+	private createInlineMathImageRun(bytes: Uint8Array, tokens: StyleTokens): ImageRun {
 		const data = contiguousUint8Array(bytes);
 		const maxW = Math.max(
 			20,
@@ -800,26 +760,11 @@ export class DocxExporter {
 		);
 		let width = maxW;
 		let height = Math.round(maxW * 0.45);
-		try {
-			const blob = new Blob([data], { type: "image/png" });
-			const url = URL.createObjectURL(blob);
-			try {
-				const dims = await new Promise<{ w: number; h: number }>((res, rej) => {
-					const img = new Image();
-					img.onload = () => res({ w: img.naturalWidth, h: img.naturalHeight });
-					img.onerror = () => rej(new Error("png decode"));
-					img.src = url;
-				});
-				if (dims.w > 0 && dims.h > 0) {
-					const scale = dims.w > maxW ? maxW / dims.w : 1;
-					width = Math.max(1, Math.round(dims.w * scale));
-					height = Math.max(1, Math.round(dims.h * scale));
-				}
-			} finally {
-				URL.revokeObjectURL(url);
-			}
-		} catch {
-			// use defaults
+		const dim = pngIhdrSize(data);
+		if (dim && dim.w > 0 && dim.h > 0) {
+			const scale = dim.w > maxW ? maxW / dim.w : 1;
+			width = Math.max(1, Math.round(dim.w * scale));
+			height = Math.max(1, Math.round(dim.h * scale));
 		}
 		return new ImageRun({
 			data,
@@ -830,27 +775,30 @@ export class DocxExporter {
 
 	/**
 	 * Plain text slice that may contain `$...$` inline math (not `$$`).
+	 * Prefetches unique formulas in parallel (session dedupes + concurrency cap), then stitches runs.
 	 */
 	private async plainSliceWithMathAsync(
 		slice: string,
 		tokens: StyleTokens,
 		highlightFill: string | undefined,
-		project: ReportProject,
+		mathSession: DocxMathRasterSession,
 	): Promise<Array<TextRun | ImageRun>> {
 		if (!slice) return [];
 		const hl =
 			highlightFill !== undefined ? { type: ShadingType.CLEAR, fill: highlightFill } : undefined;
-		const runs: Array<TextRun | ImageRun> = [];
-		const sourcePath = getPrimaryMarkdownSourcePath(project);
-		const mathW = this.inlineMathRasterWidthPx(tokens);
 		const re = /\$(?!\$)((?:[^$\\]|\\.)+?)\$(?!\$)/g;
+		const matches = [...slice.matchAll(re)];
+		const uniques = [...new Set(matches.map((m) => (m[1] ?? "").trim()).filter(Boolean))];
+		await Promise.all(uniques.map((tex) => mathSession.getOrRenderInline(tex)));
+
+		const runs: Array<TextRun | ImageRun> = [];
 		let last = 0;
-		let m: RegExpExecArray | null;
-		while ((m = re.exec(slice)) !== null) {
-			if (m.index > last) {
+		for (const m of matches) {
+			const start = m.index ?? 0;
+			if (start > last) {
 				runs.push(
 					new TextRun({
-						text: slice.slice(last, m.index),
+						text: slice.slice(last, start),
 						color: this.toDocxColor(tokens.colorText),
 						font: tokens.fontBody,
 						size: this.ptToHalfPoint(tokens.fontSizeBody),
@@ -861,16 +809,9 @@ export class DocxExporter {
 			const raw = m[0] ?? "";
 			const tex = (m[1] ?? "").trim();
 			if (tex) {
-				const png = await renderInlineMathMarkdownToPng(
-					this.app,
-					this.component,
-					tex,
-					sourcePath,
-					mathW,
-					{ inkColor: tokens.mathExportColor },
-				);
+				const png = await mathSession.getOrRenderInline(tex);
 				if (png && isAcceptableMathPng(png)) {
-					runs.push(await this.createInlineMathImageRun(png, tokens));
+					runs.push(this.createInlineMathImageRun(png, tokens));
 				} else {
 					runs.push(
 						new TextRun({
@@ -893,7 +834,7 @@ export class DocxExporter {
 					}),
 				);
 			}
-			last = re.lastIndex;
+			last = start + raw.length;
 		}
 		if (last < slice.length) {
 			runs.push(
@@ -912,7 +853,7 @@ export class DocxExporter {
 	private async inlineRunsAsync(
 		text: string,
 		tokens: StyleTokens,
-		project: ReportProject,
+		mathSession: DocxMathRasterSession,
 	): Promise<Array<TextRun | ExternalHyperlink | ImageRun>> {
 		const segs = segmentHighlightSyntax(text);
 		const out: Array<TextRun | ExternalHyperlink | ImageRun> = [];
@@ -920,7 +861,7 @@ export class DocxExporter {
 
 		for (const seg of segs) {
 			if (seg.kind === "text") {
-				if (seg.text) out.push(...(await this.inlineRunsPlainAsync(seg.text, tokens, undefined, project)));
+				if (seg.text) out.push(...(await this.inlineRunsPlainAsync(seg.text, tokens, undefined, mathSession)));
 				continue;
 			}
 			let fill = defaultFill;
@@ -928,7 +869,7 @@ export class DocxExporter {
 				const css = normalizeHighlightColorToken(seg.colorToken);
 				if (css) fill = highlightCssToDocxFill(css, defaultFill);
 			}
-			out.push(...(await this.inlineRunsPlainAsync(seg.text, tokens, fill, project)));
+			out.push(...(await this.inlineRunsPlainAsync(seg.text, tokens, fill, mathSession)));
 		}
 
 		return out.length ? out : [new TextRun("")];
@@ -938,7 +879,7 @@ export class DocxExporter {
 		text: string,
 		tokens: StyleTokens,
 		highlightFill: string | undefined,
-		project: ReportProject,
+		mathSession: DocxMathRasterSession,
 	): Promise<Array<TextRun | ExternalHyperlink | ImageRun>> {
 		const runs: Array<TextRun | ExternalHyperlink | ImageRun> = [];
 		const hl =
@@ -954,7 +895,7 @@ export class DocxExporter {
 						text.slice(index, start),
 						tokens,
 						highlightFill,
-						project,
+						mathSession,
 					)),
 				);
 			}
@@ -1027,7 +968,7 @@ export class DocxExporter {
 		}
 		if (index < text.length) {
 			runs.push(
-				...(await this.plainSliceWithMathAsync(text.slice(index), tokens, highlightFill, project)),
+				...(await this.plainSliceWithMathAsync(text.slice(index), tokens, highlightFill, mathSession)),
 			);
 		}
 		if (runs.length === 0) {
@@ -1078,7 +1019,7 @@ export class DocxExporter {
 		lines: string[],
 		start: number,
 		tokens: StyleTokens,
-		project: ReportProject,
+		mathSession: DocxMathRasterSession,
 	): Promise<{ table: Table; nextIndex: number } | null> {
 		const firstRaw = lines[start] ?? "";
 		const first = firstRaw.trim();
@@ -1149,7 +1090,7 @@ export class DocxExporter {
 			}
 			cellChildren.push(
 				new Paragraph({
-					children: await this.inlineRunsAsync(trimmedBody, tokens, project),
+					children: await this.inlineRunsAsync(trimmedBody, tokens, mathSession),
 					alignment: this.toAlignment(tokens.paragraphTextAlign),
 					spacing: { before: 0, after: this.ptToTwips(Math.min(tokens.paragraphSpacing, 6)) },
 				}),
@@ -1202,7 +1143,7 @@ export class DocxExporter {
 		lines: string[],
 		start: number,
 		tokens: StyleTokens,
-		project: ReportProject,
+		mathSession: DocxMathRasterSession,
 	): Promise<{ table: Table; nextIndex: number } | null> {
 		const header = (lines[start] ?? "").trim();
 		const separator = (lines[start + 1] ?? "").trim();
@@ -1218,7 +1159,7 @@ export class DocxExporter {
 				const cells = this.splitTableRow(row);
 				const tableCells = await Promise.all(
 					cells.map(async (cell, cellIndex) => {
-						const children = await this.inlineRunsAsync(cell, tokens, project);
+						const children = await this.inlineRunsAsync(cell, tokens, mathSession);
 						return new TableCell({
 							children: [
 								new Paragraph({
