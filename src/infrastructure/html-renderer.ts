@@ -105,6 +105,7 @@ export class HtmlRenderer {
 					mathBodyFontSizePt: t.fontSizeBody,
 					mathInlineScalePercent: t.mathInlineScalePercent,
 					mathDisplayScalePercent: t.mathDisplayScalePercent,
+					layoutTokens: t,
 				});
 				// eslint-disable-next-line no-console
 				console.info("[HTML-preview][math] rasterized nodes=%d", mathSwap.replaced);

@@ -188,11 +188,28 @@ export class CssTemplateEngine {
 }
 
 .ra-render-frame svg,
-.ra-render-frame img {
+.ra-render-frame img:not(.ra-math-export-img) {
 	display: block !important;
 	page-break-inside: avoid !important;
 	page-break-after: avoid !important;
 	margin: ${t.imageMarginTop}px ${t.imageMarginHorizontal} ${t.imageMarginBottom}px !important;
+}
+
+/* Raster math PNGs: do not force display:block on inline formulas (breaks line flow). */
+.ra-render-frame img.ra-math-export-img--inline {
+	display: inline-block !important;
+	vertical-align: middle !important;
+	margin: 0 0.1em !important;
+	max-width: 100% !important;
+	page-break-inside: avoid !important;
+}
+
+.ra-render-frame img.ra-math-export-img--display {
+	display: block !important;
+	margin: 0.75em auto !important;
+	max-width: 100% !important;
+	page-break-inside: avoid !important;
+	page-break-after: avoid !important;
 }
 
 .ra-render-frame figcaption {

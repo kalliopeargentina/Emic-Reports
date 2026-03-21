@@ -5,15 +5,17 @@
 
 import { toBlob } from "html-to-image";
 import { Component, MarkdownRenderer, type App } from "obsidian";
+import type { StyleTokens } from "../domain/style-template";
 import {
 	contiguousUint8Array,
 	isAcceptableMathPng,
 	isValidPng,
+	pngIhdrSize,
 	pngUint8ArrayToDataUrl,
 } from "./binary-image";
 import { revealOffscreenHostForCanvasReadback } from "./chart-canvas-snapshot";
 import { waitForDomStable } from "./dom-settle";
-import { MATH_RASTER_PIXEL_RATIO } from "./math-export-sizing";
+import { docxMathImageTransformationPx, MATH_RASTER_PIXEL_RATIO } from "./math-export-sizing";
 
 const MATH_LAYOUT_STABLE_TICKS = 4;
 const MATH_WAIT_SLICE_MS = 90;
@@ -66,6 +68,11 @@ export type MathRasterOptions = {
 	 * @deprecated Legacy: interpreted as % of `mathBodyFontSizePt` when `mathFontSizePt` is absent.
 	 */
 	mathFontSizePercent?: number;
+	/**
+	 * When set, exported `<img>` width/height match DOCX `ImageRun` layout px so PDF/print math
+	 * scales like Word instead of using raw PNG intrinsic size (often larger vs body text in print).
+	 */
+	layoutTokens?: StyleTokens;
 };
 
 function resolveMathInkColor(inkColor: string | undefined): string {
@@ -389,6 +396,40 @@ function rootMjxContainers(host: HTMLElement): HTMLElement[] {
 }
 
 /**
+ * MathJax `mjx-container` is display mode when `display` is set, or when wrapped by Obsidian
+ * `math-block` / `.math-block` (some themes use a div instead of the custom element).
+ */
+export function mjxContainerIsDisplay(el: HTMLElement): boolean {
+	const raw = el.getAttribute("display");
+	if (raw != null) {
+		const d = raw.trim().toLowerCase();
+		if (d === "false" || d === "inline" || d === "0") return false;
+		if (d === "true" || d === "block" || d === "") return true;
+	}
+	return el.closest("math-block, .math-block") !== null;
+}
+
+const MATH_EXPORT_IMG_CLASS = "ra-math-export-img";
+const MATH_EXPORT_IMG_INLINE_CLASS = "ra-math-export-img--inline";
+const MATH_EXPORT_IMG_DISPLAY_CLASS = "ra-math-export-img--display";
+
+/** Same px dimensions as DOCX `ImageRun` for consistent math size across PDF and Word. */
+function applyExportMathImageLayoutPx(
+	img: HTMLImageElement,
+	png: Uint8Array,
+	tokens: StyleTokens,
+	mode: "inline" | "display",
+): void {
+	const dim = pngIhdrSize(png);
+	if (!dim || dim.w <= 0 || dim.h <= 0) return;
+	const { width, height } = docxMathImageTransformationPx(tokens, mode, dim);
+	img.setAttribute("width", String(width));
+	img.setAttribute("height", String(height));
+	img.style.width = `${width}px`;
+	img.style.height = `${height}px`;
+}
+
+/**
  * Replace `math-block` and root `mjx-container` nodes with `<img data:image/png>`.
  * Call after `revealOffscreenHostForCanvasReadback` on the same host.
  */
@@ -399,8 +440,9 @@ export async function replaceMathWithRasterImages(
 ): Promise<{ replaced: number }> {
 	let replaced = 0;
 	const bodyPt = options?.mathBodyFontSizePt ?? 10;
-	const inlineScale = options?.mathInlineScalePercent ?? 90;
-	const displayScale = options?.mathDisplayScalePercent ?? 90;
+	/** Align with style template defaults (100 / 120) when callers omit percents. */
+	const inlineScale = options?.mathInlineScalePercent ?? 100;
+	const displayScale = options?.mathDisplayScalePercent ?? 120;
 	const inlinePt = (bodyPt * inlineScale) / 100;
 	const displayPt = (bodyPt * displayScale) / 100;
 
@@ -417,10 +459,13 @@ export async function replaceMathWithRasterImages(
 		const img = document.createElement("img");
 		img.src = dataUrl;
 		img.alt = "math";
-		img.className = "ra-math-export-img";
+		img.className = `${MATH_EXPORT_IMG_CLASS} ${MATH_EXPORT_IMG_DISPLAY_CLASS}`;
 		img.style.display = "block";
 		img.style.margin = "0.75em auto";
 		img.style.maxWidth = "100%";
+		if (options?.layoutTokens) {
+			applyExportMathImageLayoutPx(img, png, options.layoutTokens, "display");
+		}
 		block.replaceWith(img);
 		replaced += 1;
 	}
@@ -428,20 +473,31 @@ export async function replaceMathWithRasterImages(
 	for (const mjx of rootMjxContainers(host)) {
 		if (!mjx.isConnected) continue;
 		if (mjx.closest(".ra-math-export-img")) continue;
+		const isDisplay = mjxContainerIsDisplay(mjx);
 		const png = await rasterizeMathElement(mjx, maxWidthPx, {
 			...options,
-			inline: true,
-			mathFontSizePt: inlinePt,
+			inline: !isDisplay,
+			mathFontSizePt: isDisplay ? displayPt : inlinePt,
 		});
 		if (!png) continue;
 		const dataUrl = pngUint8ArrayToDataUrl(png);
 		const img = document.createElement("img");
 		img.src = dataUrl;
 		img.alt = "math";
-		img.className = "ra-math-export-img";
-		img.style.display = "inline-block";
-		img.style.verticalAlign = "middle";
+		img.className = isDisplay
+			? `${MATH_EXPORT_IMG_CLASS} ${MATH_EXPORT_IMG_DISPLAY_CLASS}`
+			: `${MATH_EXPORT_IMG_CLASS} ${MATH_EXPORT_IMG_INLINE_CLASS}`;
+		if (isDisplay) {
+			img.style.display = "block";
+			img.style.margin = "0.75em auto";
+		} else {
+			img.style.display = "inline-block";
+			img.style.verticalAlign = "middle";
+		}
 		img.style.maxWidth = "100%";
+		if (options?.layoutTokens) {
+			applyExportMathImageLayoutPx(img, png, options.layoutTokens, isDisplay ? "display" : "inline");
+		}
 		mjx.replaceWith(img);
 		replaced += 1;
 	}
