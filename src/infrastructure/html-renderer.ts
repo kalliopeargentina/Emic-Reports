@@ -5,8 +5,12 @@ import {
 	replacePaintedCanvasesWithImages,
 	waitForChartCanvasPaint,
 } from "./chart-canvas-snapshot";
+import { replaceEmicPlotHostsWithApiImages } from "./emic-charts-view-bridge";
 import { waitForDomStable } from "./dom-settle";
-import { markdownHasPluginDiagramFence } from "./plugin-diagram-render";
+import {
+	markdownHasEmicChartsCanvasFence,
+	markdownHasPluginDiagramFence,
+} from "./plugin-diagram-render";
 import { serializeElementHtml, waitForSvgOrCanvasDeep } from "./shadow-dom";
 
 /**
@@ -14,27 +18,6 @@ import { serializeElementHtml, waitForSvgOrCanvasDeep } from "./shadow-dom";
  * (detached or 0-width hosts often never paint diagrams).
  */
 const OFFSCREEN_RENDER_WIDTH_PX = 900;
-
-function countFencesByLang(markdown: string, lang: string): number {
-	const lowerLang = lang.trim().toLowerCase();
-	if (!lowerLang) return 0;
-	const lines = markdown.split("\n");
-	let inFence = false;
-	let count = 0;
-	for (const line of lines) {
-		const t = line.trim();
-		if (!(t.startsWith("```") || t.startsWith("~~~"))) continue;
-		if (inFence) {
-			inFence = false;
-			continue;
-		}
-		inFence = true;
-		const rest = t.replace(/^(`{3,}|~{3,})\s*/, "").trim();
-		const cur = (rest.split(/\s+/)[0] ?? "").replace(/^[{}]+/, "").toLowerCase();
-		if (cur === lowerLang) count += 1;
-	}
-	return count;
-}
 
 export class HtmlRenderer {
 	constructor(
@@ -68,9 +51,11 @@ export class HtmlRenderer {
 			if (markdownHasPluginDiagramFence(markdown)) {
 				await waitForSvgOrCanvasDeep(host, { maxMs: 20000, intervalMs: 50 });
 			}
-			const emicFenceCount = countFencesByLang(markdown, "emic-charts-view");
-			if (emicFenceCount > 0) {
+			if (markdownHasEmicChartsCanvasFence(markdown)) {
 				await waitForChartCanvasPaint(host, CHART_CANVAS_WAIT_MAX_MS);
+				const apiSwap = await replaceEmicPlotHostsWithApiImages(this.app, host, {
+					logPrefix: "[HTML-preview]",
+				});
 				const canvases = Array.from(host.querySelectorAll("canvas")) as HTMLCanvasElement[];
 				const painted = canvases.filter((c) => {
 					try {
@@ -84,8 +69,9 @@ export class HtmlRenderer {
 				).length;
 				// eslint-disable-next-line no-console
 				console.info(
-					"[HTML-preview][emic-charts] fences=%d canvases=%d painted=%d errorLikeNodes=%d",
-					emicFenceCount,
+					"[HTML-preview][emic-charts] api plotHosts=%d/%d canvases=%d painted=%d errorLikeNodes=%d",
+					apiSwap.replaced,
+					apiSwap.total,
 					canvases.length,
 					painted,
 					errorNodes,

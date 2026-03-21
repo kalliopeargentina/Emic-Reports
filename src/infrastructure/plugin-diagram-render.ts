@@ -14,6 +14,7 @@ import {
 import { waitForDomStable } from "./dom-settle";
 import { prepareDiagramSvgForRasterExport } from "./svg-inline-styles";
 import { svgExportDisplayDimensions } from "./svg-export-dims";
+import { tryEmicChartsViewExportPng } from "./emic-charts-view-bridge";
 import { findLargestSvgDeep, querySelectorDeep, waitForSvgOrCanvasDeep } from "./shadow-dom";
 
 /** Fence languages that Obsidian plugins typically turn into SVG/canvas (not plain code). */
@@ -54,42 +55,24 @@ export function parseFenceOpenerLang(line: string): string {
 	return (rest.split(/\s+/)[0] ?? "").replace(/^[{}]+/, "");
 }
 
-const DOCX_MERMAID_INIT = "%%{init: {'flowchart': {'htmlLabels': false, 'curve': 'linear'}, 'sequence': {'useMaxWidth': false}}}%%";
-
-/** Must match Emic-Charts-View `manifest.json` id. */
-const EMIC_CHARTS_VIEW_PLUGIN_ID = "emic-charts-view";
-
-/** Facade from Emic-Charts-View README — no compile-time dependency on that plugin. */
-type EmicChartsViewPluginLike = {
-	api?: { exportPngFromElement(root: HTMLElement): Promise<Blob> };
-};
-
-/**
- * Same PNG path as Emic-Charts-View "Export to PNG" (plot toDataURL / canvas).
- * Call before replacePaintedCanvasesWithImages — that removes canvases the API needs.
- */
-async function tryEmicChartsViewExportPng(app: App, host: HTMLElement): Promise<Uint8Array | null> {
-	/** Obsidian `App` typings omit `plugins`; it exists at runtime. */
-	const registry = (app as unknown as { plugins?: { plugins?: Record<string, unknown> } }).plugins
-		?.plugins;
-	const plug = registry?.[EMIC_CHARTS_VIEW_PLUGIN_ID] as EmicChartsViewPluginLike | undefined;
-	const api = plug?.api;
-	if (!api || typeof api.exportPngFromElement !== "function") return null;
-	try {
-		const blob = await api.exportPngFromElement(host);
-		if (!blob || blob.size < 200) return null;
-		const bytes = new Uint8Array(await blob.arrayBuffer());
-		if (!isValidPng(bytes)) return null;
-		return contiguousUint8Array(bytes);
-	} catch (e) {
-		// eslint-disable-next-line no-console
-		console.info(
-			"[DOCX-export] emic-charts-view api.exportPngFromElement failed: %s",
-			e instanceof Error ? e.message : String(e),
-		);
-		return null;
+/** True if markdown contains an Emic canvas fence (`emic-charts-view`, `emic-charts`, `emic-chart`). */
+export function markdownHasEmicChartsCanvasFence(markdown: string): boolean {
+	const lines = markdown.split("\n");
+	let inCodeBlock = false;
+	for (const line of lines) {
+		const trimmed = line.trim();
+		if (!(trimmed.startsWith("```") || trimmed.startsWith("~~~"))) continue;
+		if (inCodeBlock) {
+			inCodeBlock = false;
+			continue;
+		}
+		inCodeBlock = true;
+		if (isEmicChartsCanvasFenceLanguage(parseFenceOpenerLang(trimmed))) return true;
 	}
+	return false;
 }
+
+const DOCX_MERMAID_INIT = "%%{init: {'flowchart': {'htmlLabels': false, 'curve': 'linear'}, 'sequence': {'useMaxWidth': false}}}%%";
 
 /** Downscale wide chart PNGs to match other diagram raster paths (maxWidthPx). */
 async function scalePngBytesToMaxWidth(bytes: Uint8Array, maxWidthPx: number): Promise<Uint8Array> {
@@ -397,7 +380,9 @@ export async function renderPluginFenceToPng(
 
 		if (isEmicChartsCanvasFenceLanguage(language)) {
 			await waitForChartCanvasPaint(host, CHART_CANVAS_WAIT_MAX_MS);
-			const fromEmicApi = await tryEmicChartsViewExportPng(app, host);
+			const fromEmicApi = await tryEmicChartsViewExportPng(app, host, {
+				logPrefix: "[DOCX-export]",
+			});
 			if (fromEmicApi) {
 				const scaled = await scalePngBytesToMaxWidth(fromEmicApi, maxWidthPx);
 				const okApi = acceptDiagramPng(scaled);
