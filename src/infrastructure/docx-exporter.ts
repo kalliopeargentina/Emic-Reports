@@ -43,6 +43,7 @@ import {
 import { rasterizeSvgWithResvg } from "./resvg-rasterizer";
 import { normalizeMermaidSvgForRaster } from "./mermaid-svg-normalize";
 import { DocxMathRasterSession } from "./docx-math-raster-session";
+import { docxMathImageTransformationPx } from "./math-export-sizing";
 
 type DocxBlock = Paragraph | Table;
 type NumberingLevelConfig = {
@@ -726,15 +727,11 @@ export class DocxExporter {
 
 	private createMathPngParagraph(bytes: Uint8Array, tokens: StyleTokens): Paragraph {
 		const data = contiguousUint8Array(bytes);
-		const maxW = Math.max(60, Math.min(560, Math.round(560 * (tokens.mathScalePercent / 100))));
-		let width = maxW;
-		let height = Math.round(maxW * 0.35);
 		const dim = pngIhdrSize(data);
-		if (dim && dim.w > 0 && dim.h > 0) {
-			const scale = dim.w > maxW ? maxW / dim.w : 1;
-			width = Math.max(1, Math.round(dim.w * scale));
-			height = Math.max(1, Math.round(dim.h * scale));
-		}
+		const { width, height } =
+			dim && dim.w > 0 && dim.h > 0
+				? docxMathImageTransformationPx(tokens, "display", dim)
+				: { width: 280, height: 80 };
 
 		return new Paragraph({
 			children: [
@@ -754,18 +751,11 @@ export class DocxExporter {
 
 	private createInlineMathImageRun(bytes: Uint8Array, tokens: StyleTokens): ImageRun {
 		const data = contiguousUint8Array(bytes);
-		const maxW = Math.max(
-			20,
-			Math.min(320, Math.round(tokens.fontSizeBody * 28 * (tokens.mathScalePercent / 100))),
-		);
-		let width = maxW;
-		let height = Math.round(maxW * 0.45);
 		const dim = pngIhdrSize(data);
-		if (dim && dim.w > 0 && dim.h > 0) {
-			const scale = dim.w > maxW ? maxW / dim.w : 1;
-			width = Math.max(1, Math.round(dim.w * scale));
-			height = Math.max(1, Math.round(dim.h * scale));
-		}
+		const { width, height } =
+			dim && dim.w > 0 && dim.h > 0
+				? docxMathImageTransformationPx(tokens, "inline", dim)
+				: { width: 40, height: 24 };
 		return new ImageRun({
 			data,
 			type: "png",

@@ -174,8 +174,12 @@ export class CssTemplateEngine {
 }
 
 .ra-render-frame mjx-math {
-	font-size: ${t.mathScalePercent}% !important;
 	color: ${t.mathExportColor} !important;
+	font-size: calc(${t.fontSizeBody}pt * ${t.mathInlineScalePercent} / 100) !important;
+}
+
+.ra-render-frame math-block mjx-math {
+	font-size: calc(${t.fontSizeBody}pt * ${t.mathDisplayScalePercent} / 100) !important;
 }
 
 .ra-render-frame math-block {

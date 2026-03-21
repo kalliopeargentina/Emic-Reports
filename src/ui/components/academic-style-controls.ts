@@ -529,13 +529,28 @@ export function renderAcademicStyleControls(
 
 	sectionHeading(container, "Math");
 	new Setting(container)
-		.setName("Math scale (%)")
+		.setName("Inline math scale (%)")
+		.setDesc(
+			"Relative to body text size. 100% = same as body; used for PDF, HTML export, and Word.",
+		)
 		.addSlider((slider) =>
 			slider
-				.setLimits(50, 120, 5)
-				.setValue(t.mathScalePercent)
+				.setLimits(50, 130, 5)
+				.setValue(t.mathInlineScalePercent)
 				.setDynamicTooltip()
-				.onChange((v) => patchTokens({ mathScalePercent: v })),
+				.onChange((v) => patchTokens({ mathInlineScalePercent: v, mathScalePercent: v })),
+		);
+	new Setting(container)
+		.setName("Display math scale (%)")
+		.setDesc(
+			"Relative to body text size. Default 120% = 20% larger than body; same formula in PDF and Word.",
+		)
+		.addSlider((slider) =>
+			slider
+				.setLimits(50, 150, 5)
+				.setValue(t.mathDisplayScalePercent)
+				.setDynamicTooltip()
+				.onChange((v) => patchTokens({ mathDisplayScalePercent: v, mathScalePercent: v })),
 		);
 	new Setting(container)
 		.setName("Math export color")

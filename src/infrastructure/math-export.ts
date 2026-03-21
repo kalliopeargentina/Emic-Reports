@@ -13,13 +13,22 @@ import {
 } from "./binary-image";
 import { revealOffscreenHostForCanvasReadback } from "./chart-canvas-snapshot";
 import { waitForDomStable } from "./dom-settle";
+import { MATH_RASTER_PIXEL_RATIO } from "./math-export-sizing";
 
 const MATH_LAYOUT_STABLE_TICKS = 4;
 const MATH_WAIT_SLICE_MS = 90;
 
-const MATH_RASTER_PAD_X = 24;
-const MATH_RASTER_PAD_Y_MIN = 36;
-const MATH_RASTER_PAD_Y_FRAC = 0.22;
+/** Fallback when measuring full `el` (no `mjx-math`); keep moderate — huge values caused dead space. */
+const MATH_RASTER_PAD_X = 16;
+const MATH_RASTER_PAD_Y_MIN = 12;
+const MATH_RASTER_PAD_Y_FRAC = 0.08;
+
+/** Tight capture on `mjx-math` (DOCX/PDF): small symmetric pad — ink bbox handles most margin. */
+const MATH_RASTER_PAD_X_MJX = 8;
+const MATH_RASTER_PAD_Y_MIN_MJX = 6;
+const MATH_RASTER_PAD_Y_FRAC_MJX = 0.06;
+/** Extra px below SVG ink when using `getBBox()` (descenders / anti-aliasing). */
+const MATH_RASTER_INK_PAD_V = 6;
 
 /**
  * Inline math: capture `mjx-math`, not `mjx-container` (container often spans a huge box with
@@ -35,10 +44,28 @@ export type MathRasterOptions = {
 	/** CSS color for typeset math when baking to PNG (from style template `mathExportColor`). */
 	inkColor?: string;
 	/**
-	 * When true, measure from `mjx-math` (tight glyph box) instead of full-line `scrollWidth`.
-	 * Used for inline `$...$`; display `$$` / `math-block` should omit this or set false.
+	 * Inline vs display affects font size and padding; **both** modes prefer capturing
+	 * `mjx-math` when present so the PNG is not full-column width with empty margins.
 	 */
 	inline?: boolean;
+	/**
+	 * Absolute `font-size` in **pt** on `mjx-math` before capture (body pt × scale / 100).
+	 * Preferred over legacy percent — `%` was relative to inconsistent parents and often looked unchanged.
+	 */
+	mathFontSizePt?: number;
+	/**
+	 * Body font size (pt) from the style template. Used with `mathInlineScalePercent` /
+	 * `mathDisplayScalePercent` in `replaceMathWithRasterImages` to compute pt when rasterizing.
+	 */
+	mathBodyFontSizePt?: number;
+	/** Template scale for inline math (PDF/HTML replace path). */
+	mathInlineScalePercent?: number;
+	/** Template scale for display math (PDF/HTML replace path). */
+	mathDisplayScalePercent?: number;
+	/**
+	 * @deprecated Legacy: interpreted as % of `mathBodyFontSizePt` when `mathFontSizePt` is absent.
+	 */
+	mathFontSizePercent?: number;
 };
 
 function resolveMathInkColor(inkColor: string | undefined): string {
@@ -121,6 +148,71 @@ function applyMathExportRasterStyling(root: HTMLElement, ink: string): () => voi
 	};
 }
 
+/** Apply template `font-size: Npt` to `mjx-math` under the capture root before rasterizing. */
+function applyMathJaxFontSizePtToCaptureRoot(root: HTMLElement, sizePt: number | undefined): () => void {
+	if (sizePt == null || !Number.isFinite(sizePt) || sizePt <= 0) return () => {};
+	const mathel = root.querySelectorAll("mjx-math");
+	const list: HTMLElement[] =
+		mathel.length > 0 ? (Array.from(mathel) as HTMLElement[]) : [root];
+	const snapshots = list.map((el) => ({
+		el,
+		fontSize: el.style.fontSize,
+		priority: el.style.getPropertyPriority("font-size"),
+	}));
+	for (const { el } of snapshots) {
+		el.style.setProperty("font-size", `${sizePt}pt`, "important");
+	}
+	return () => {
+		for (const { el, fontSize, priority } of snapshots) {
+			if (fontSize) el.style.setProperty("font-size", fontSize, priority);
+			else el.style.removeProperty("font-size");
+		}
+	};
+}
+
+/** Brief pause so layout can settle after changing `font-size` (avoid `typesetPromise` — it can reset nodes). */
+async function delayAfterMathFontChange(): Promise<void> {
+	await new Promise<void>((resolve) => {
+		requestAnimationFrame(() => {
+			requestAnimationFrame(() => resolve());
+		});
+	});
+}
+
+/**
+ * `mjx-math` layout height often includes blank strut below the SVG; trim to SVG ink height so PNGs
+ * are not mostly whitespace under the formula (fixes Word baseline + block spacing).
+ */
+function tightMathJaxHeightPx(captureEl: HTMLElement, rectHeight: number): number {
+	const h = Math.max(2, Math.ceil(rectHeight));
+	const svg = captureEl.querySelector("svg");
+	if (!(svg instanceof SVGSVGElement)) return h;
+	try {
+		const b = svg.getBBox();
+		if (!(b.height > 0) || !Number.isFinite(b.height)) return h;
+		const inkH = Math.ceil(b.height) + MATH_RASTER_INK_PAD_V;
+		if (inkH < h) return Math.max(inkH, 8);
+	} catch {
+		/* getBBox can throw on detached / not-yet-laid-out SVG */
+	}
+	return h;
+}
+
+function resolveMathFontSizePtForRaster(options?: MathRasterOptions): number | undefined {
+	if (options?.mathFontSizePt != null && Number.isFinite(options.mathFontSizePt) && options.mathFontSizePt > 0) {
+		return options.mathFontSizePt;
+	}
+	if (
+		options?.mathBodyFontSizePt != null &&
+		options?.mathFontSizePercent != null &&
+		Number.isFinite(options.mathBodyFontSizePt) &&
+		Number.isFinite(options.mathFontSizePercent)
+	) {
+		return (options.mathBodyFontSizePt * options.mathFontSizePercent) / 100;
+	}
+	return undefined;
+}
+
 /** Heuristic: display `$$` and/or inline `$...$` (not `$$`). */
 export function markdownLikelyHasMath(markdown: string): boolean {
 	if (markdown.includes("$$")) return true;
@@ -168,9 +260,13 @@ async function rasterizeMathElement(
 ): Promise<Uint8Array | null> {
 	const ink = resolveMathInkColor(options?.inkColor);
 	const inline = options?.inline === true;
-	const innerMath = inline ? (el.querySelector("mjx-math") as HTMLElement | null) : null;
-	/** Element passed to `toBlob` — must match size we compute (inline ≠ full `mjx-container`). */
-	const captureEl = inline && innerMath ? innerMath : el;
+	/**
+	 * Prefer `mjx-math` for both inline and display: block wrappers (`math-block`, `mjx-container`)
+	 * are often full line width while MathJax centers the SVG — capturing the outer box bakes huge
+	 * side margins into the PNG and makes formulas look tiny in Word.
+	 */
+	const mjxMath = el.querySelector("mjx-math") as HTMLElement | null;
+	const captureEl = mjxMath ?? el;
 
 	const prevCapture = {
 		opacity: captureEl.style.opacity,
@@ -207,6 +303,10 @@ async function rasterizeMathElement(
 	});
 
 	const restoreColors = applyMathExportRasterStyling(captureEl, ink);
+	const fontPt = resolveMathFontSizePtForRaster(options);
+	const restoreMathFs = applyMathJaxFontSizePtToCaptureRoot(captureEl, fontPt);
+	void captureEl.offsetHeight;
+	await delayAfterMathFontChange();
 	void captureEl.offsetHeight;
 
 	try {
@@ -219,11 +319,22 @@ async function rasterizeMathElement(
 			const r = captureEl.getBoundingClientRect();
 			/** Do not use `scrollHeight` — MathJax nodes often report a tall scroll box with little ink. */
 			wContent = Math.max(2, Math.ceil(r.width));
-			hContent = Math.max(2, Math.ceil(r.height));
+			hContent = tightMathJaxHeightPx(captureEl, r.height);
 			padX = MATH_RASTER_PAD_X_INLINE;
 			padY = Math.max(
 				MATH_RASTER_PAD_Y_MIN_INLINE,
 				Math.ceil(hContent * MATH_RASTER_PAD_Y_FRAC_INLINE),
+			);
+		} else if (mjxMath) {
+			/** Tight bounds from `mjx-math` — do not use `el` full-line width. */
+			void captureEl.offsetHeight;
+			const r = captureEl.getBoundingClientRect();
+			wContent = Math.max(2, Math.ceil(r.width));
+			hContent = tightMathJaxHeightPx(captureEl, r.height);
+			padX = MATH_RASTER_PAD_X_MJX;
+			padY = Math.max(
+				MATH_RASTER_PAD_Y_MIN_MJX,
+				Math.ceil(hContent * MATH_RASTER_PAD_Y_FRAC_MJX),
 			);
 		} else {
 			const rect = el.getBoundingClientRect();
@@ -240,7 +351,7 @@ async function rasterizeMathElement(
 		const blob = await toBlob(captureEl, {
 			width: w,
 			height: h,
-			pixelRatio: 2,
+			pixelRatio: MATH_RASTER_PIXEL_RATIO,
 			backgroundColor: "#ffffff",
 			cacheBust: true,
 			skipFonts: false,
@@ -256,6 +367,7 @@ async function rasterizeMathElement(
 	} catch {
 		return null;
 	} finally {
+		restoreMathFs();
 		restoreColors();
 		captureEl.style.opacity = prevCapture.opacity;
 		captureEl.style.visibility = prevCapture.visibility;
@@ -286,11 +398,20 @@ export async function replaceMathWithRasterImages(
 	options?: MathRasterOptions,
 ): Promise<{ replaced: number }> {
 	let replaced = 0;
+	const bodyPt = options?.mathBodyFontSizePt ?? 10;
+	const inlineScale = options?.mathInlineScalePercent ?? 90;
+	const displayScale = options?.mathDisplayScalePercent ?? 90;
+	const inlinePt = (bodyPt * inlineScale) / 100;
+	const displayPt = (bodyPt * displayScale) / 100;
 
 	const mathBlocks = Array.from(host.querySelectorAll("math-block")) as HTMLElement[];
 	for (const block of mathBlocks) {
 		if (!block.isConnected) continue;
-		const png = await rasterizeMathElement(block, maxWidthPx, { ...options, inline: false });
+		const png = await rasterizeMathElement(block, maxWidthPx, {
+			...options,
+			inline: false,
+			mathFontSizePt: displayPt,
+		});
 		if (!png) continue;
 		const dataUrl = pngUint8ArrayToDataUrl(png);
 		const img = document.createElement("img");
@@ -307,7 +428,11 @@ export async function replaceMathWithRasterImages(
 	for (const mjx of rootMjxContainers(host)) {
 		if (!mjx.isConnected) continue;
 		if (mjx.closest(".ra-math-export-img")) continue;
-		const png = await rasterizeMathElement(mjx, maxWidthPx, { ...options, inline: true });
+		const png = await rasterizeMathElement(mjx, maxWidthPx, {
+			...options,
+			inline: true,
+			mathFontSizePt: inlinePt,
+		});
 		if (!png) continue;
 		const dataUrl = pngUint8ArrayToDataUrl(png);
 		const img = document.createElement("img");
@@ -353,6 +478,8 @@ export async function renderDisplayMathMarkdownToPng(
 	host.addClass("markdown-rendered");
 	Object.assign(host.style, OFFSCREEN_MATH_HOST_STYLES);
 	host.style.width = `${maxWidthPx}px`;
+	const bodyPt = options?.mathBodyFontSizePt ?? 10;
+	host.style.fontSize = `${bodyPt}pt`;
 	document.body.appendChild(host);
 
 	const sub = new Component();
@@ -397,6 +524,8 @@ export async function renderInlineMathMarkdownToPng(
 	host.addClass("markdown-rendered");
 	Object.assign(host.style, OFFSCREEN_MATH_HOST_STYLES);
 	host.style.width = `${maxWidthPx}px`;
+	const bodyPt = options?.mathBodyFontSizePt ?? 10;
+	host.style.fontSize = `${bodyPt}pt`;
 	document.body.appendChild(host);
 
 	const sub = new Component();

@@ -95,12 +95,16 @@ export class HtmlRenderer {
 				await revealOffscreenHostForCanvasReadback(host);
 				await waitForMathLayout(host, 16000, true);
 				const t = mergeStyleTokens(project.styleTemplate.tokens);
+				const mathScaleBlend = Math.max(t.mathInlineScalePercent, t.mathDisplayScalePercent) / 100;
 				const mathMaxW = Math.max(
 					240,
-					Math.round(OFFSCREEN_RENDER_WIDTH_PX * Math.max(0.4, Math.min(1.5, t.mathScalePercent / 100))),
+					Math.round(OFFSCREEN_RENDER_WIDTH_PX * Math.max(0.4, Math.min(1.5, mathScaleBlend))),
 				);
 				const mathSwap = await replaceMathWithRasterImages(host, mathMaxW, {
 					inkColor: t.mathExportColor,
+					mathBodyFontSizePt: t.fontSizeBody,
+					mathInlineScalePercent: t.mathInlineScalePercent,
+					mathDisplayScalePercent: t.mathDisplayScalePercent,
 				});
 				// eslint-disable-next-line no-console
 				console.info("[HTML-preview][math] rasterized nodes=%d", mathSwap.replaced);

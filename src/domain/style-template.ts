@@ -104,7 +104,12 @@ export interface StyleTokens {
 	calloutDocxFrameBorderMix: number;
 
 	/* --- Math --- */
+	/** @deprecated Legacy single scale; merge uses this when inline/display percents are absent. */
 	mathScalePercent: number;
+	/** Font size scale for inline `$...$` — 100 = same pt as body text. */
+	mathInlineScalePercent: number;
+	/** Font size scale for display `$$` — default 120 = 20% larger than body text. */
+	mathDisplayScalePercent: number;
 	/** Ink color when math is rasterized to PNG (DOCX / PDF / export HTML). */
 	mathExportColor: string;
 
@@ -254,7 +259,9 @@ export const DEFAULT_STYLE_TOKENS: StyleTokens = {
 	calloutCellPaddingPt: 8,
 	calloutDocxFrameBorderMix: 0.35,
 
-	mathScalePercent: 90,
+	mathScalePercent: 100,
+	mathInlineScalePercent: 100,
+	mathDisplayScalePercent: 120,
 	mathExportColor: "#0a0a0a",
 
 	imageMarginTop: 10,
@@ -303,7 +310,16 @@ export const DEFAULT_PRINT_RULES: PrintRules = {
 };
 
 export function mergeStyleTokens(partial: Partial<StyleTokens>): StyleTokens {
-	return { ...DEFAULT_STYLE_TOKENS, ...partial };
+	const merged: StyleTokens = { ...DEFAULT_STYLE_TOKENS, ...partial };
+	const legacy = partial.mathScalePercent ?? DEFAULT_STYLE_TOKENS.mathScalePercent;
+	if (partial.mathInlineScalePercent === undefined) {
+		merged.mathInlineScalePercent = legacy;
+	}
+	if (partial.mathDisplayScalePercent === undefined) {
+		/** Old single-scale templates: bump display ~20% over that legacy value (cap 150%). */
+		merged.mathDisplayScalePercent = Math.min(150, Math.round(legacy * 1.2));
+	}
+	return merged;
 }
 
 export function mergePrintRules(partial: Partial<PrintRules>): PrintRules {
