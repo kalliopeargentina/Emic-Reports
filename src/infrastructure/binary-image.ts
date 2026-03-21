@@ -41,3 +41,28 @@ export function isAcceptableDiagramPng(data: Uint8Array): boolean {
 	return dim.w >= 64 && dim.h >= 64;
 }
 
+/**
+ * DOCX / fence raster: allow wide short charts (e.g. Emic bar, timeline) that fail 64×64 IHDR.
+ * Still filters tiny icons and empty buffers.
+ */
+export function isAcceptableDiagramPngRelaxed(data: Uint8Array): boolean {
+	if (!isValidPng(data) || data.byteLength < 500) return false;
+	const dim = pngIhdrSize(data);
+	if (!dim) return false;
+	const { w, h } = dim;
+	const area = w * h;
+	if (area < 2800) return false;
+	if (w < 48 && h < 48) return false;
+	const min = Math.min(w, h);
+	const max = Math.max(w, h);
+	/** Wide-or-tall strip vs squarish chart */
+	if (min >= 32 && max >= 64) return true;
+	return area >= 3500 && min >= 28;
+}
+
+/** For logs when a PNG is rejected. */
+export function diagramPngDimsLabel(data: Uint8Array): string {
+	const dim = pngIhdrSize(data);
+	return dim ? `${dim.w}x${dim.h}` : "unknown";
+}
+

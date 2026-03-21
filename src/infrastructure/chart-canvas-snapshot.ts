@@ -5,7 +5,23 @@
 
 export const CHART_CANVAS_WAIT_MAX_MS = 5000;
 
+/**
+ * With `opacity: 0`, many browsers skip compositing for descendants; chart canvases can stay
+ * cleared/white while `toDataURL` still returns a large PNG. Emic-Charts-View's API uses the same
+ * readback path as in-note export — force a real paint pass before sampling pixels.
+ */
+export async function revealOffscreenHostForCanvasReadback(host: HTMLElement): Promise<void> {
+	host.style.opacity = "1";
+	host.style.visibility = "visible";
+	/** Stay behind the app; host is already positioned off-screen. */
+	host.style.zIndex = "-2147483648";
+	void host.offsetHeight;
+	await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+	await new Promise<void>((resolve) => window.setTimeout(resolve, 80));
+}
+
 export async function waitForChartCanvasPaint(host: HTMLElement, maxMs: number): Promise<void> {
+	await revealOffscreenHostForCanvasReadback(host);
 	const start = Date.now();
 	while (Date.now() - start < maxMs) {
 		const canvases = Array.from(host.querySelectorAll("canvas")) as HTMLCanvasElement[];

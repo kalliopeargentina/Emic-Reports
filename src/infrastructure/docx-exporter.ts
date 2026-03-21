@@ -25,12 +25,18 @@ import {
 	normalizeHighlightColorToken,
 	segmentHighlightSyntax,
 } from "./highlight-export";
-import { contiguousUint8Array, isAcceptableDiagramPng } from "./binary-image";
 import {
+	contiguousUint8Array,
+	diagramPngDimsLabel,
+	isAcceptableDiagramPng,
+	isAcceptableDiagramPngRelaxed,
+} from "./binary-image";
+import {
+	isEmicChartsCanvasFenceLanguage,
 	isPluginDiagramFenceLanguage,
 	parseFenceOpenerLang,
-	renderPluginFenceToSvg,
 	renderPluginFenceToPng,
+	renderPluginFenceToSvg,
 } from "./plugin-diagram-render";
 import { rasterizeSvgWithResvg } from "./resvg-rasterizer";
 import { normalizeMermaidSvgForRaster } from "./mermaid-svg-normalize";
@@ -316,6 +322,55 @@ export class DocxExporter {
 		return output;
 	}
 
+	/** Rasterize plugin diagram fence to PNG and embed; returns null if not acceptable or failed. */
+	private async embedDiagramFenceAsPng(
+		codeFenceLang: string,
+		body: string,
+		project: ReportProject,
+		tokens: StyleTokens,
+		logIntro: string,
+	): Promise<Paragraph | null> {
+		const sourcePath = getPrimaryMarkdownSourcePath(project);
+		try {
+			// eslint-disable-next-line no-console
+			console.info(logIntro, codeFenceLang);
+			/** Match HTML preview width so canvas charts layout like Reading view; DOCX scales display. */
+			const png = await renderPluginFenceToPng(
+				this.app,
+				this.component,
+				codeFenceLang,
+				body,
+				sourcePath,
+				900,
+			);
+			if (png && isAcceptableDiagramPngRelaxed(png)) {
+				// eslint-disable-next-line no-console
+				console.info(
+					"[DOCX-export] PNG embedded bytes=%d dims=%s",
+					png.byteLength,
+					diagramPngDimsLabel(png),
+				);
+				return await this.createDiagramPngParagraph(png, tokens);
+			}
+			if (png && png.byteLength > 0) {
+				// eslint-disable-next-line no-console
+				console.info(
+					"[DOCX-export] PNG rejected for DOCX embed bytes=%d dims=%s strict=%s relaxed=%s",
+					png.byteLength,
+					diagramPngDimsLabel(png),
+					String(isAcceptableDiagramPng(png)),
+					String(isAcceptableDiagramPngRelaxed(png)),
+				);
+			} else {
+				// eslint-disable-next-line no-console
+				console.info("[DOCX-export] PNG null or empty for lang=%s", codeFenceLang);
+			}
+		} catch {
+			/* raster failed */
+		}
+		return null;
+	}
+
 	private async finishFencedBlock(
 		codeLines: string[],
 		codeFenceLang: string,
@@ -326,6 +381,25 @@ export class DocxExporter {
 		const sourcePath = getPrimaryMarkdownSourcePath(project);
 		if (isPluginDiagramFenceLanguage(codeFenceLang)) {
 			const isMermaid = codeFenceLang.trim().toLowerCase() === "mermaid";
+			if (isEmicChartsCanvasFenceLanguage(codeFenceLang)) {
+				if (DOCX_SVG_ONLY_TEST) {
+					// eslint-disable-next-line no-console
+					console.info(
+						"[DOCX-export] SVG-only mode: skip PNG for canvas chart lang=%s",
+						codeFenceLang,
+					);
+					return this.createCodeBlockParagraph(body, tokens);
+				}
+				const emic = await this.embedDiagramFenceAsPng(
+					codeFenceLang,
+					body,
+					project,
+					tokens,
+					"[DOCX-export] canvas chart PNG for lang=%s",
+				);
+				if (emic) return emic;
+				return this.createCodeBlockParagraph(body, tokens);
+			}
 			try {
 				// eslint-disable-next-line no-console
 				console.info("[DOCX-export] try SVG render for lang=%s", codeFenceLang);
@@ -375,7 +449,11 @@ export class DocxExporter {
 							svgAsset.height,
 							svgPngFallback?.byteLength ?? 0,
 						);
-						if (!isMermaid && svgPngFallback && isAcceptableDiagramPng(svgPngFallback)) {
+						if (
+							!isMermaid &&
+							svgPngFallback &&
+							isAcceptableDiagramPngRelaxed(svgPngFallback)
+						) {
 							// Word SVG support for some plugin diagrams is unreliable; embed PNG directly.
 							return await this.createDiagramPngParagraph(svgPngFallback, tokens);
 						}
@@ -397,25 +475,14 @@ export class DocxExporter {
 				return this.createCodeBlockParagraph(body, tokens);
 			}
 			if (isMermaid) return this.createCodeBlockParagraph(body, tokens);
-			try {
-				// eslint-disable-next-line no-console
-				console.info("[DOCX-export] fallback renderPluginFenceToPng for lang=%s", codeFenceLang);
-				const png = await renderPluginFenceToPng(
-					this.app,
-					this.component,
-					codeFenceLang,
-					body,
-					sourcePath,
-					720,
-				);
-				if (png && isAcceptableDiagramPng(png)) {
-					// eslint-disable-next-line no-console
-					console.info("[DOCX-export] fallback produced bytes=%d", png.byteLength);
-					return await this.createDiagramPngParagraph(png, tokens);
-				}
-			} catch {
-				/* Render/raster failed — fall back to code block */
-			}
+			const fallback = await this.embedDiagramFenceAsPng(
+				codeFenceLang,
+				body,
+				project,
+				tokens,
+				"[DOCX-export] fallback renderPluginFenceToPng for lang=%s",
+			);
+			if (fallback) return fallback;
 		}
 		return this.createCodeBlockParagraph(body, tokens);
 	}
@@ -459,12 +526,13 @@ export class DocxExporter {
 			);
 			if (!outBlob) return null;
 			const bytes = contiguousUint8Array(new Uint8Array(await outBlob.arrayBuffer()));
-			if (isAcceptableDiagramPng(bytes)) {
+			if (isAcceptableDiagramPngRelaxed(bytes)) {
 				// Browser raster often preserves Mermaid text/labels better than resvg.
 				// eslint-disable-next-line no-console
 				console.info(
-					"[DOCX-export] svg->png via browser bytes=%d (mermaid=%s)",
+					"[DOCX-export] svg->png via browser bytes=%d dims=%s (mermaid=%s)",
 					bytes.byteLength,
+					diagramPngDimsLabel(bytes),
 					isMermaid ? "yes" : "no",
 				);
 				return bytes;

@@ -2,7 +2,7 @@ import { toBlob, toCanvas } from "html-to-image";
 import { Component, MarkdownRenderer, type App } from "obsidian";
 import {
 	contiguousUint8Array,
-	isAcceptableDiagramPng,
+	isAcceptableDiagramPngRelaxed,
 	isValidPng,
 	pngIhdrSize,
 } from "./binary-image";
@@ -40,7 +40,7 @@ export function isPluginDiagramFenceLanguage(lang: string): boolean {
 
 /** Exported for DOCX / fence instrumentation (must match docx line parsing). */
 /** Ant Design Charts fences render to canvas; SVG export grabs wrong layer — use PNG path only. */
-function isEmicChartsCanvasFence(language: string): boolean {
+export function isEmicChartsCanvasFenceLanguage(language: string): boolean {
 	const l = language.trim().toLowerCase();
 	return l === "emic-charts-view" || l === "emic-charts" || l === "emic-chart";
 }
@@ -55,6 +55,75 @@ export function parseFenceOpenerLang(line: string): string {
 }
 
 const DOCX_MERMAID_INIT = "%%{init: {'flowchart': {'htmlLabels': false, 'curve': 'linear'}, 'sequence': {'useMaxWidth': false}}}%%";
+
+/** Must match Emic-Charts-View `manifest.json` id. */
+const EMIC_CHARTS_VIEW_PLUGIN_ID = "emic-charts-view";
+
+/** Facade from Emic-Charts-View README — no compile-time dependency on that plugin. */
+type EmicChartsViewPluginLike = {
+	api?: { exportPngFromElement(root: HTMLElement): Promise<Blob> };
+};
+
+/**
+ * Same PNG path as Emic-Charts-View "Export to PNG" (plot toDataURL / canvas).
+ * Call before replacePaintedCanvasesWithImages — that removes canvases the API needs.
+ */
+async function tryEmicChartsViewExportPng(app: App, host: HTMLElement): Promise<Uint8Array | null> {
+	/** Obsidian `App` typings omit `plugins`; it exists at runtime. */
+	const registry = (app as unknown as { plugins?: { plugins?: Record<string, unknown> } }).plugins
+		?.plugins;
+	const plug = registry?.[EMIC_CHARTS_VIEW_PLUGIN_ID] as EmicChartsViewPluginLike | undefined;
+	const api = plug?.api;
+	if (!api || typeof api.exportPngFromElement !== "function") return null;
+	try {
+		const blob = await api.exportPngFromElement(host);
+		if (!blob || blob.size < 200) return null;
+		const bytes = new Uint8Array(await blob.arrayBuffer());
+		if (!isValidPng(bytes)) return null;
+		return contiguousUint8Array(bytes);
+	} catch (e) {
+		// eslint-disable-next-line no-console
+		console.info(
+			"[DOCX-export] emic-charts-view api.exportPngFromElement failed: %s",
+			e instanceof Error ? e.message : String(e),
+		);
+		return null;
+	}
+}
+
+/** Downscale wide chart PNGs to match other diagram raster paths (maxWidthPx). */
+async function scalePngBytesToMaxWidth(bytes: Uint8Array, maxWidthPx: number): Promise<Uint8Array> {
+	const dim = pngIhdrSize(bytes);
+	if (!dim) return bytes;
+	const { w, h } = dim;
+	if (w <= maxWidthPx) return bytes;
+	const scale = maxWidthPx / w;
+	const outW = Math.max(1, Math.round(w * scale));
+	const outH = Math.max(1, Math.round(h * scale));
+	const blob = new Blob([contiguousUint8Array(bytes)], { type: "image/png" });
+	const url = URL.createObjectURL(blob);
+	try {
+		const img = new Image();
+		await new Promise<void>((resolve, reject) => {
+			img.onload = () => resolve();
+			img.onerror = () => reject(new Error("png decode"));
+			img.src = url;
+		});
+		const canvas = document.createElement("canvas");
+		canvas.width = outW;
+		canvas.height = outH;
+		const ctx = canvas.getContext("2d");
+		if (!ctx) return bytes;
+		ctx.drawImage(img, 0, 0, outW, outH);
+		const outBlob = await new Promise<Blob | null>((r) => canvas.toBlob(r, "image/png", 1));
+		if (!outBlob) return bytes;
+		return contiguousUint8Array(new Uint8Array(await outBlob.arrayBuffer()));
+	} catch {
+		return bytes;
+	} finally {
+		URL.revokeObjectURL(url);
+	}
+}
 
 function buildFenceMarkdown(language: string, body: string): string {
 	const normalized = language.trim().toLowerCase();
@@ -185,7 +254,7 @@ async function rasterizeCanvasToPng(canvas: HTMLCanvasElement, maxWidthPx: numbe
 }
 
 function acceptDiagramPng(candidate: Uint8Array | null): Uint8Array | null {
-	if (!candidate || !isAcceptableDiagramPng(candidate)) return null;
+	if (!candidate || !isAcceptableDiagramPngRelaxed(candidate)) return null;
 	return candidate;
 }
 
@@ -236,7 +305,7 @@ async function rasterizeLargestDataUrlImageToPng(
 	const outBlob = await new Promise<Blob | null>((r) => canvas.toBlob(r, "image/png", 1));
 	if (!outBlob) return null;
 	const bytes = new Uint8Array(await outBlob.arrayBuffer());
-	return isAcceptableDiagramPng(bytes) ? contiguousUint8Array(bytes) : null;
+	return isAcceptableDiagramPngRelaxed(bytes) ? contiguousUint8Array(bytes) : null;
 }
 
 function pngDimsBrief(candidate: Uint8Array | null): string {
@@ -326,8 +395,22 @@ export async function renderPluginFenceToPng(
 		await waitForDomStable(host, { stableMs: 450, maxMs: 25000 });
 		await waitForSvgOrCanvasDeep(host, { maxMs: 20000, intervalMs: 50 });
 
-		if (isEmicChartsCanvasFence(language)) {
+		if (isEmicChartsCanvasFenceLanguage(language)) {
 			await waitForChartCanvasPaint(host, CHART_CANVAS_WAIT_MAX_MS);
+			const fromEmicApi = await tryEmicChartsViewExportPng(app, host);
+			if (fromEmicApi) {
+				const scaled = await scalePngBytesToMaxWidth(fromEmicApi, maxWidthPx);
+				const okApi = acceptDiagramPng(scaled);
+				if (okApi) {
+					// eslint-disable-next-line no-console
+					console.info(
+						"[DOCX-export] emic-charts-view API PNG bytes=%d dims=%s",
+						okApi.byteLength,
+						pngDimsBrief(okApi),
+					);
+					return okApi;
+				}
+			}
 			replacePaintedCanvasesWithImages(host);
 			await new Promise<void>((resolve) =>
 				requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
@@ -422,7 +505,7 @@ export async function renderPluginFenceToSvg(
 ): Promise<{ data: Uint8Array; width: number; height: number } | null> {
 	if (!isPluginDiagramFenceLanguage(language)) return null;
 	/** Canvas charts: never embed SVG (misleading bbox / decorative svg). DOCX uses PNG path. */
-	if (isEmicChartsCanvasFence(language)) return null;
+	if (isEmicChartsCanvasFenceLanguage(language)) return null;
 
 	const md = buildFenceMarkdown(language, body);
 	const host = document.createElement("div");
