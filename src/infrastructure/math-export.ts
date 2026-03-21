@@ -21,24 +21,34 @@ const MATH_LAYOUT_STABLE_TICKS = 4;
 const MATH_WAIT_SLICE_MS = 90;
 
 /** Fallback when measuring full `el` (no `mjx-math`); keep moderate — huge values caused dead space. */
-const MATH_RASTER_PAD_X = 16;
-const MATH_RASTER_PAD_Y_MIN = 12;
-const MATH_RASTER_PAD_Y_FRAC = 0.08;
+const MATH_RASTER_PAD_X = 14;
+const MATH_RASTER_PAD_Y_MIN = 10;
+const MATH_RASTER_PAD_Y_FRAC = 0.06;
 
 /** Tight capture on `mjx-math` (DOCX/PDF): small symmetric pad — ink bbox handles most margin. */
-const MATH_RASTER_PAD_X_MJX = 8;
-const MATH_RASTER_PAD_Y_MIN_MJX = 6;
-const MATH_RASTER_PAD_Y_FRAC_MJX = 0.06;
-/** Extra px below SVG ink when using `getBBox()` (descenders / anti-aliasing). */
-const MATH_RASTER_INK_PAD_V = 6;
+const MATH_RASTER_PAD_X_MJX = 6;
+const MATH_RASTER_PAD_Y_MIN_MJX = 4;
+const MATH_RASTER_PAD_Y_FRAC_MJX = 0.04;
+/** Extra px on tight height derived from SVG `getBBox()` (descenders / anti-aliasing). */
+const MATH_RASTER_INK_PAD_V = 1;
+
+/**
+ * Vertical padding: bottom is smaller than top — MathJax/`mjx-math` often leaves strut space below
+ * the SVG; symmetric pad duplicated that as empty PNG space under the formula.
+ */
+function verticalRasterPaddingPx(padY: number): { top: number; bottom: number } {
+	const top = Math.max(1, Math.ceil(padY));
+	const bottom = Math.max(1, Math.round(padY * 0.32));
+	return { top, bottom };
+}
 
 /**
  * Inline math: capture `mjx-math`, not `mjx-container` (container often spans a huge box with
  * the glyph in the corner — same bug as using scrollWidth for width).
  */
-const MATH_RASTER_PAD_X_INLINE = 4;
-const MATH_RASTER_PAD_Y_MIN_INLINE = 4;
-const MATH_RASTER_PAD_Y_FRAC_INLINE = 0.08;
+const MATH_RASTER_PAD_X_INLINE = 2;
+const MATH_RASTER_PAD_Y_MIN_INLINE = 2;
+const MATH_RASTER_PAD_Y_FRAC_INLINE = 0.04;
 
 const DEFAULT_MATH_INK = "#0a0a0a";
 
@@ -187,8 +197,8 @@ async function delayAfterMathFontChange(): Promise<void> {
 }
 
 /**
- * `mjx-math` layout height often includes blank strut below the SVG; trim to SVG ink height so PNGs
- * are not mostly whitespace under the formula (fixes Word baseline + block spacing).
+ * `mjx-math` layout height often includes blank strut below the SVG; trim using bbox + SVG layout
+ * height (often shorter than the full `mjx-math` rect — excess is usually below the formula).
  */
 function tightMathJaxHeightPx(captureEl: HTMLElement, rectHeight: number): number {
 	const h = Math.max(2, Math.ceil(rectHeight));
@@ -198,7 +208,10 @@ function tightMathJaxHeightPx(captureEl: HTMLElement, rectHeight: number): numbe
 		const b = svg.getBBox();
 		if (!(b.height > 0) || !Number.isFinite(b.height)) return h;
 		const inkH = Math.ceil(b.height) + MATH_RASTER_INK_PAD_V;
-		if (inkH < h) return Math.max(inkH, 8);
+		const svgLayoutH = Math.ceil(svg.getBoundingClientRect().height);
+		/** Prefer the tighter of ink bbox vs painted SVG box when both are below the outer rect. */
+		const fromInk = Math.max(inkH, svgLayoutH > 0 ? svgLayoutH : inkH);
+		if (fromInk < h) return Math.max(fromInk, 4);
 	} catch {
 		/* getBBox can throw on detached / not-yet-laid-out SVG */
 	}
@@ -350,23 +363,76 @@ async function rasterizeMathElement(
 			padX = MATH_RASTER_PAD_X;
 			padY = Math.max(MATH_RASTER_PAD_Y_MIN, Math.ceil(hContent * MATH_RASTER_PAD_Y_FRAC));
 		}
-		let w = Math.ceil(wContent + padX * 2);
-		let h = Math.ceil(hContent + padY * 2);
+		const { top: padTop, bottom: padBottom } = verticalRasterPaddingPx(padY);
+		let h = Math.ceil(hContent + padTop + padBottom);
+		let w: number;
+		if (inline) {
+			/** Symmetric horizontal pad around SVG ink so Word can anchor the PNG left without skew. */
+			let inkW = wContent;
+			const svgInk = captureEl.querySelector("svg");
+			if (svgInk instanceof SVGSVGElement) {
+				try {
+					const b = svgInk.getBBox();
+					if (b.width > 0 && Number.isFinite(b.width)) {
+						inkW = Math.max(2, Math.ceil(b.width));
+					}
+				} catch {
+					/* ignore */
+				}
+			}
+			w = Math.ceil(inkW + padX * 2);
+		} else {
+			w = Math.ceil(wContent + padX * 2);
+		}
 		w = Math.min(w, maxWidthPx + padX * 2);
 		h = Math.min(h, 4800);
 
-		const blob = await toBlob(captureEl, {
-			width: w,
-			height: h,
-			pixelRatio: MATH_RASTER_PIXEL_RATIO,
-			backgroundColor: "#ffffff",
-			cacheBust: true,
-			skipFonts: false,
-			style: {
-				overflow: "visible",
-				maxHeight: "none",
-			},
-		});
+		const useInlineCenterWrap = inline && mjxMath !== null && captureEl.parentElement !== null;
+		let blob: Blob | null = null;
+		if (useInlineCenterWrap) {
+			const wrapParent = captureEl.parentElement!;
+			const wrapper = document.createElement("div");
+			wrapper.setAttribute("data-ra-math-raster-wrap", "1");
+			wrapper.style.display = "flex";
+			wrapper.style.justifyContent = "center";
+			wrapper.style.alignItems = "flex-start";
+			wrapper.style.boxSizing = "border-box";
+			wrapper.style.backgroundColor = "#ffffff";
+			wrapper.style.width = `${w}px`;
+			wrapper.style.height = `${h}px`;
+			wrapParent.insertBefore(wrapper, captureEl);
+			wrapper.appendChild(captureEl);
+			try {
+				blob = await toBlob(wrapper, {
+					width: w,
+					height: h,
+					pixelRatio: MATH_RASTER_PIXEL_RATIO,
+					backgroundColor: "#ffffff",
+					cacheBust: true,
+					skipFonts: false,
+					style: {
+						overflow: "visible",
+						maxHeight: "none",
+					},
+				});
+			} finally {
+				wrapParent.insertBefore(captureEl, wrapper);
+				wrapper.remove();
+			}
+		} else {
+			blob = await toBlob(captureEl, {
+				width: w,
+				height: h,
+				pixelRatio: MATH_RASTER_PIXEL_RATIO,
+				backgroundColor: "#ffffff",
+				cacheBust: true,
+				skipFonts: false,
+				style: {
+					overflow: "visible",
+					maxHeight: "none",
+				},
+			});
+		}
 		if (!blob || blob.size < 80) return null;
 		const bytes = new Uint8Array(await blob.arrayBuffer());
 		if (!isValidPng(bytes) || !isAcceptableMathPng(bytes)) return null;

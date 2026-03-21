@@ -4,6 +4,8 @@ import {
 	Document,
 	ExternalHyperlink,
 	HeadingLevel,
+	HorizontalPositionAlign,
+	HorizontalPositionRelativeFrom,
 	ImageRun,
 	LevelFormat,
 	Packer,
@@ -13,6 +15,10 @@ import {
 	TableCell,
 	TableRow,
 	TextRun,
+	TextWrappingSide,
+	TextWrappingType,
+	VerticalPositionAlign,
+	VerticalPositionRelativeFrom,
 	WidthType,
 } from "docx";
 import { TFile, requestUrl, type App, type Component } from "obsidian";
@@ -756,10 +762,32 @@ export class DocxExporter {
 			dim && dim.w > 0 && dim.h > 0
 				? docxMathImageTransformationPx(tokens, "inline", dim)
 				: { width: 40, height: 24 };
+		/**
+		 * Floating anchor: vertical center on line; horizontal `LEFT` at character — no EMU offset
+		 * (negative offset pulled the image over preceding text). Ink is centered inside the PNG in
+		 * math raster (centered ink in PNG) so left-edge alignment still looks balanced.
+		 */
 		return new ImageRun({
 			data,
 			type: "png",
 			transformation: { width, height },
+			floating: {
+				horizontalPosition: {
+					relative: HorizontalPositionRelativeFrom.CHARACTER,
+					align: HorizontalPositionAlign.LEFT,
+				},
+				verticalPosition: {
+					relative: VerticalPositionRelativeFrom.LINE,
+					align: VerticalPositionAlign.CENTER,
+				},
+				wrap: {
+					type: TextWrappingType.SQUARE,
+					side: TextWrappingSide.BOTH_SIDES,
+				},
+				lockAnchor: true,
+				allowOverlap: false,
+				layoutInCell: true,
+			},
 		});
 	}
 
