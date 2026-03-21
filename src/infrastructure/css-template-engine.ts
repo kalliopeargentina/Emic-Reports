@@ -420,6 +420,8 @@ ${perType}
 	color: var(--ra-text) !important;
 	-webkit-print-color-adjust: exact !important;
 	print-color-adjust: exact !important;
+	break-inside: avoid-page;
+	page-break-inside: avoid;
 }
 
 .ra-render-frame .callout .callout-title {

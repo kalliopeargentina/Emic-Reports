@@ -23,6 +23,12 @@ import {
 } from "docx";
 import { TFile, requestUrl, type App, type Component } from "obsidian";
 import { CALLOUT_TYPE_RGB } from "../domain/callout-palette";
+import {
+	CALLOUT_NEST_MAX_DEPTH,
+	countQuoteDepth,
+	parseCalloutStartLine,
+	stripQuoteLevels,
+} from "./callout-markdown";
 import { getPrimaryMarkdownSourcePath, type ReportProject } from "../domain/report-project";
 import { mergePrintRules, mergeStyleTokens, type StyleTokens } from "../domain/style-template";
 import {
@@ -1030,8 +1036,8 @@ export class DocxExporter {
 	}
 
 	/**
-	 * Obsidian callouts: first line `> [!type] Optional title`, then `> ...` body lines.
-	 * Renders as a single-row table with tinted background and accent left border (DOCX has no native callouts).
+	 * Obsidian callouts: `>…> [!type] Optional title`, then nested `>…` body lines.
+	 * Nested `> > [!child]` is parsed recursively. Renders as table(s) with tinted background.
 	 */
 	private async tryParseCalloutAsync(
 		lines: string[],
@@ -1039,30 +1045,29 @@ export class DocxExporter {
 		tokens: StyleTokens,
 		mathSession: DocxMathRasterSession,
 	): Promise<{ table: Table; nextIndex: number } | null> {
-		const firstRaw = lines[start] ?? "";
-		const first = firstRaw.trim();
-		const calloutMatch = /^>\s*\[!([^\]]+)\]\s*(.*)$/.exec(first);
-		if (!calloutMatch) return null;
+		const parsed = parseCalloutStartLine(lines[start] ?? "");
+		if (!parsed) return null;
+		return this.buildCalloutTableAsync(lines, start, parsed.depth, tokens, mathSession, 0);
+	}
 
-		let rawType = (calloutMatch[1] ?? "note").trim().toLowerCase().replace(/\s+/g, "-");
-		if (rawType.endsWith("-")) {
-			rawType = rawType.slice(0, -1);
-		}
-		let rest = (calloutMatch[2] ?? "").trim();
+	private async buildCalloutTableAsync(
+		lines: string[],
+		start: number,
+		expectedDepth: number,
+		tokens: StyleTokens,
+		mathSession: DocxMathRasterSession,
+		nestLevel: number,
+	): Promise<{ table: Table; nextIndex: number } | null> {
+		const headParsed = parseCalloutStartLine(lines[start] ?? "");
+		if (!headParsed || headParsed.depth !== expectedDepth) return null;
+
+		let rest = headParsed.restAfterBracket;
 		const foldPref = /^([+\-])\s*(.*)$/.exec(rest);
 		if (foldPref) {
 			rest = (foldPref[2] ?? "").trim();
 		}
 		const userTitle = rest;
-		const bodyLines: string[] = [];
-		let idx = start + 1;
-		while (idx < lines.length) {
-			const line = lines[idx] ?? "";
-			const cont = /^>\s?(.*)$/.exec(line);
-			if (!cont) break;
-			bodyLines.push(cont[1] ?? "");
-			idx += 1;
-		}
+		const rawType = headParsed.rawType;
 
 		const rgbKey = CALLOUT_TYPE_RGB[rawType] ? rawType : "note";
 		const rgb = CALLOUT_TYPE_RGB[rgbKey] ?? CALLOUT_TYPE_RGB.note ?? "68, 138, 255";
@@ -1078,7 +1083,18 @@ export class DocxExporter {
 			.join(" ");
 		const titleText = userTitle || typeLabel || "Note";
 
-		const cellChildren: Paragraph[] = [
+		const body = await this.parseCalloutBodyAsync(
+			lines,
+			start + 1,
+			expectedDepth,
+			tokens,
+			mathSession,
+			nestLevel,
+		);
+		const titleAfter =
+			body.blocks.length > 0 ? this.ptToTwips(4) : this.ptToTwips(2);
+
+		const cellChildren: (Paragraph | Table)[] = [
 			new Paragraph({
 				children: [
 					new TextRun({
@@ -1091,29 +1107,10 @@ export class DocxExporter {
 						),
 					}),
 				],
-				spacing: { after: bodyLines.some((l) => l.trim()) ? this.ptToTwips(4) : this.ptToTwips(2) },
+				spacing: { after: titleAfter },
 			}),
+			...body.blocks,
 		];
-
-		for (const body of bodyLines) {
-			const trimmedBody = body.trim();
-			if (!trimmedBody) {
-				cellChildren.push(
-					new Paragraph({
-						children: [new TextRun({ text: "", color: this.toDocxColor(tokens.colorText) })],
-						spacing: { before: 0, after: 0 },
-					}),
-				);
-				continue;
-			}
-			cellChildren.push(
-				new Paragraph({
-					children: await this.inlineRunsAsync(trimmedBody, tokens, mathSession),
-					alignment: this.toAlignment(tokens.paragraphTextAlign),
-					spacing: { before: 0, after: this.ptToTwips(Math.min(tokens.paragraphSpacing, 6)) },
-				}),
-			);
-		}
 
 		const thin = { style: BorderStyle.SINGLE, size: 1, color: borderHex } as const;
 		const leftBarEighths = Math.max(
@@ -1122,8 +1119,8 @@ export class DocxExporter {
 		);
 		const accentEdge = { style: BorderStyle.SINGLE, size: leftBarEighths, color: accentHex } as const;
 		const padTwips = Math.round(tokens.calloutCellPaddingPt * 20);
-		const leftPadTwips =
-			padTwips + Math.round(tokens.calloutBorderLeftWidthPx * 15);
+		const nestIndentTwips = nestLevel * 120;
+		const leftPadTwips = padTwips + Math.round(tokens.calloutBorderLeftWidthPx * 15) + nestIndentTwips;
 
 		const table = new Table({
 			rows: [
@@ -1154,7 +1151,63 @@ export class DocxExporter {
 			width: { size: 100, type: WidthType.PERCENTAGE },
 		});
 
-		return { table, nextIndex: idx };
+		return { table, nextIndex: body.nextIndex };
+	}
+
+	private async parseCalloutBodyAsync(
+		lines: string[],
+		startIdx: number,
+		depth: number,
+		tokens: StyleTokens,
+		mathSession: DocxMathRasterSession,
+		nestLevel: number,
+	): Promise<{ blocks: (Paragraph | Table)[]; nextIndex: number }> {
+		const blocks: (Paragraph | Table)[] = [];
+		let idx = startIdx;
+		while (idx < lines.length) {
+			const line = lines[idx] ?? "";
+			const qd = countQuoteDepth(line);
+			if (qd === 0) break;
+			if (qd < depth) break;
+
+			const nestedStart = parseCalloutStartLine(line);
+			if (nestedStart && nestedStart.depth > depth && nestLevel < CALLOUT_NEST_MAX_DEPTH) {
+				const nested = await this.buildCalloutTableAsync(
+					lines,
+					idx,
+					nestedStart.depth,
+					tokens,
+					mathSession,
+					nestLevel + 1,
+				);
+				if (nested) {
+					blocks.push(nested.table);
+					idx = nested.nextIndex;
+					continue;
+				}
+			}
+
+			const bodyText = stripQuoteLevels(line, depth);
+			const trimmedBody = bodyText.trim();
+			if (!trimmedBody) {
+				blocks.push(
+					new Paragraph({
+						children: [new TextRun({ text: "", color: this.toDocxColor(tokens.colorText) })],
+						spacing: { before: 0, after: 0 },
+					}),
+				);
+			} else {
+				blocks.push(
+					new Paragraph({
+						children: await this.inlineRunsAsync(trimmedBody, tokens, mathSession),
+						alignment: this.toAlignment(tokens.paragraphTextAlign),
+						spacing: { before: 0, after: this.ptToTwips(Math.min(tokens.paragraphSpacing, 6)) },
+					}),
+				);
+			}
+			idx += 1;
+		}
+		return { blocks, nextIndex: idx };
 	}
 
 	private async tryParseTableAsync(

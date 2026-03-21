@@ -1,13 +1,12 @@
-import { Modal, Setting, type App } from "obsidian";
+import { Modal, type App } from "obsidian";
 import type { ReportProject } from "../../domain/report-project";
-import { paginateHtml } from "../../infrastructure/html-paginator";
 import { PageSizeResolver } from "../../infrastructure/page-size-resolver";
 
 export class ReportPreviewModal extends Modal {
 	private pageSizeResolver = new PageSizeResolver();
 	private pageEls: HTMLElement[] = [];
 	private currentIndex = 0;
-	private pageLabelEl: HTMLElement | null = null;
+	private pageLabelEl: HTMLElement | null = null; // unused when full-document preview; kept for compatibility
 	private pageHostEl: HTMLElement | null = null;
 
 	constructor(
@@ -29,29 +28,11 @@ export class ReportPreviewModal extends Modal {
 		}
 
 		const controlsEl = this.contentEl.createDiv({ cls: "ra-preview-controls" });
-		new Setting(controlsEl)
-			.addButton((btn) =>
-				btn.setButtonText("Previous").onClick(() => {
-					this.goToPage(this.currentIndex - 1);
-				}),
-			)
-			.addExtraButton((btn) =>
-				btn.setIcon("left-arrow").setTooltip("Previous page").onClick(() => {
-					this.goToPage(this.currentIndex - 1);
-				}),
-			)
-			.addExtraButton((btn) =>
-				btn.setIcon("right-arrow").setTooltip("Next page").onClick(() => {
-					this.goToPage(this.currentIndex + 1);
-				}),
-			)
-			.addButton((btn) =>
-				btn.setButtonText("Next").onClick(() => {
-					this.goToPage(this.currentIndex + 1);
-				}),
-			);
-
-		this.pageLabelEl = controlsEl.createEl("span", { cls: "ra-page-label", text: "Page 1/1" });
+		controlsEl.createEl("span", {
+			cls: "ra-page-label",
+			text: "Full document — scroll the page below. (PDF export still uses paged layout.)",
+		});
+		this.pageLabelEl = null;
 		this.pageHostEl = this.contentEl.createDiv({ cls: "ra-live-preview" });
 
 		void this.renderPages();
@@ -68,15 +49,13 @@ export class ReportPreviewModal extends Modal {
 		this.currentIndex = 0;
 
 		const pageSize = this.pageSizeResolver.resolve(this.project);
-		const pages = paginateHtml(this.project, this.previewHtml);
-		for (const pageHtml of pages) {
-			const body = this.createPageBody(pageSize);
-			const pageDoc = new DOMParser().parseFromString(`<div id="ra-page">${pageHtml}</div>`, "text/html");
-			const pageRoot = pageDoc.getElementById("ra-page");
-			const nodes = pageRoot ? Array.from(pageRoot.children) : [];
-			for (const node of nodes) {
-				body.appendChild(node.cloneNode(true));
-			}
+		/** Full HTML in one scrollable frame — JS page splitting hid or clipped callouts and other blocks. */
+		const body = this.createFullDocumentPageBody(pageSize);
+		const pageDoc = new DOMParser().parseFromString(`<div id="ra-page">${this.previewHtml}</div>`, "text/html");
+		const pageRoot = pageDoc.getElementById("ra-page");
+		const nodes = pageRoot ? Array.from(pageRoot.children) : [];
+		for (const node of nodes) {
+			body.appendChild(node.cloneNode(true));
 		}
 
 		this.goToPage(0);
@@ -92,22 +71,27 @@ export class ReportPreviewModal extends Modal {
 		if (this.pageLabelEl) {
 			this.pageLabelEl.setText(`Page ${clamped + 1}/${this.pageEls.length}`);
 		}
+		// Single full-document frame: label is static from onOpen
 	}
 
-	private createPageBody(pageSize: { width: string; height: string }): HTMLElement {
+	private createFullDocumentPageBody(pageSize: { width: string; height: string }): HTMLElement {
 		if (!this.pageHostEl) {
 			throw new Error("Preview host is not ready.");
 		}
-		const frame = this.pageHostEl.createDiv({ cls: "ra-paper-frame" });
+		const frame = this.pageHostEl.createDiv({ cls: "ra-paper-frame ra-preview-full-document" });
 		frame.style.width = pageSize.width;
-		frame.style.height = pageSize.height;
+		frame.style.maxWidth = "100%";
+		frame.style.height = "auto";
+		frame.style.minHeight = "0";
 		this.applyPageStyles(frame);
 		frame.style.paddingTop = this.project.styleTemplate.tokens.pageMarginTop;
 		frame.style.paddingRight = this.project.styleTemplate.tokens.pageMarginRight;
 		frame.style.paddingBottom = this.project.styleTemplate.tokens.pageMarginBottom;
 		frame.style.paddingLeft = this.project.styleTemplate.tokens.pageMarginLeft;
 
-		const body = frame.createDiv({ cls: "ra-render-frame ra-page-body" });
+		const body = frame.createDiv({
+			cls: "ra-render-frame ra-page-body markdown-preview-view markdown-reading-view markdown-rendered",
+		});
 		this.pageEls.push(frame);
 		return body;
 	}

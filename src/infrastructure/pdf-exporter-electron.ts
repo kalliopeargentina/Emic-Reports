@@ -5,17 +5,12 @@ import { existsSync } from "fs";
 import path from "path";
 import { promisify } from "util";
 import type { ReportProject } from "../domain/report-project";
-import { mergeStyleTokens } from "../domain/style-template";
-import { paginateHtml } from "./html-paginator";
-import { PageSizeResolver } from "./page-size-resolver";
+import { resolveChromiumBinary } from "./chromium-resolve";
+import { buildPrintableHtmlDocument, type HtmlPreviewBundle } from "./pdf-print-html";
 
-export interface HtmlPreviewBundle {
-	html: string;
-	css: string;
-}
+export type { HtmlPreviewBundle };
 
 export class PdfExporterElectron {
-	private pageSizeResolver = new PageSizeResolver();
 	private execFileAsync = promisify(execFile);
 
 	constructor(private app: App) {}
@@ -52,67 +47,7 @@ export class PdfExporterElectron {
 			await this.app.vault.adapter.mkdir(tempDir);
 		}
 
-		const page = this.pageSizeResolver.resolve(project);
-		const pages = paginateHtml(project, bundle.html);
-		const t = mergeStyleTokens(project.styleTemplate.tokens);
-		const html = `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8" />
-<meta name="referrer" content="no-referrer" />
-<style>${bundle.css}</style>
-<style>
-html, body { margin: 0; background: ${t.pageBackgroundColor} !important; }
-.ra-print-sheet {
-	width: ${page.width};
-	height: ${page.height};
-	margin: 0 auto;
-	page-break-after: always;
-	box-sizing: border-box;
-	background: ${t.pageBackgroundColor};
-}
-.ra-export-page-body {
-	height: 100%;
-	overflow: hidden;
-	box-sizing: border-box;
-	padding-top: ${t.pageMarginTop};
-	padding-right: ${t.pageMarginRight};
-	padding-bottom: ${t.pageMarginBottom};
-	padding-left: ${t.pageMarginLeft};
-}
-</style>
-<script>
-async function waitForAssets() {
-	const images = Array.from(document.images || []);
-	await Promise.all(images.map(async (img) => {
-		try {
-			if (img.decode) await img.decode();
-		} catch {}
-		if (img.complete && img.naturalWidth > 0) return;
-		return new Promise((resolve) => {
-			img.addEventListener("load", resolve, { once: true });
-			img.addEventListener("error", resolve, { once: true });
-		});
-	}));
-	if (document.fonts && document.fonts.ready) {
-		try { await document.fonts.ready; } catch {}
-	}
-	await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-	document.body.setAttribute("data-ra-ready", "1");
-}
-window.addEventListener("load", () => { void waitForAssets(); });
-</script>
-</head>
-<body>
-${pages
-	.map(
-		(pageHtml) => `<div class="ra-print-sheet">
-<div class="ra-render-frame ra-export-page-body">${pageHtml}</div>
-</div>`,
-	)
-	.join("\n")}
-</body>
-</html>`;
+		const html = buildPrintableHtmlDocument(project, bundle);
 		const htmlPath = `${tempDir}/${project.id}.html`;
 		await this.app.vault.adapter.write(htmlPath, html);
 		return htmlPath;
@@ -177,7 +112,7 @@ ${pages
 	}
 
 	private async tryHeadlessBrowserPdf(htmlPath: string, outputPath: string): Promise<boolean> {
-		const binary = this.resolveBrowserBinary();
+		const binary = resolveChromiumBinary();
 		const basePath = this.getVaultBasePath();
 		if (!binary || !basePath) {
 			return false;
@@ -208,21 +143,6 @@ ${pages
 		} catch {
 			return false;
 		}
-	}
-
-	private resolveBrowserBinary(): string | null {
-		const candidates = [
-			"C:/Program Files/Microsoft/Edge/Application/msedge.exe",
-			"C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
-			"C:/Program Files/Google/Chrome/Application/chrome.exe",
-			"C:/Program Files (x86)/Google/Chrome/Application/chrome.exe",
-		];
-		for (const candidate of candidates) {
-			if (existsSync(candidate)) {
-				return candidate;
-			}
-		}
-		return null;
 	}
 
 	private getVaultBasePath(): string | null {

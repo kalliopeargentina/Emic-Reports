@@ -124,6 +124,18 @@
 	overflow: hidden;
 }
 
+/* Preview modal: full-document mode — no fixed page height; content flows and scrolls in .ra-live-preview */
+.ra-preview-modal .ra-paper-frame.ra-preview-full-document {
+	height: auto !important;
+	overflow: visible;
+}
+
+.ra-preview-modal .ra-paper-frame.ra-preview-full-document .ra-page-body {
+	height: auto !important;
+	overflow: visible;
+	overflow-x: hidden;
+}
+
 .ra-measure-source {
 	position: fixed;
 	left: -99999px;
