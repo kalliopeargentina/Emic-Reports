@@ -98,8 +98,52 @@
 	box-sizing: border-box;
 }
 
+/* Let the preview area shrink inside the modal and scroll (tall paper / zoomed UI). */
+.ra-preview-modal {
+	display: flex;
+	flex-direction: column;
+	max-height: min(90vh, 920px);
+	min-height: 0;
+	width: 100%;
+}
+
 .ra-preview-modal .ra-live-preview {
-	max-height: 65vh;
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow: auto;
+	max-height: none;
+	-webkit-overflow-scrolling: touch;
+}
+
+/* Scale whole page to fit preview pane; modal size unchanged. */
+.ra-preview-modal .ra-live-preview.ra-preview-fit-host {
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+}
+
+.ra-preview-modal .ra-preview-page-slot {
+	flex: 1 1 auto;
+	min-height: 0;
+	width: 100%;
+	overflow: hidden;
+}
+
+.ra-preview-modal .ra-preview-page-slot:not(.ra-page-hidden) {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.ra-preview-scale-outer {
+	flex-shrink: 0;
+	overflow: hidden;
+	line-height: 0;
+}
+
+.ra-preview-scale-inner {
+	display: block;
+	transform-origin: 0 0;
 }
 
 .ra-preview-controls {
@@ -133,6 +177,12 @@
 .ra-preview-modal .ra-paper-frame.ra-preview-full-document .ra-page-body {
 	height: auto !important;
 	overflow: visible;
+	overflow-x: hidden;
+}
+
+/* Paged preview: allow scrolling inside the sheet if a slice is slightly overfilled. */
+.ra-preview-modal .ra-paper-frame.ra-preview-paged .ra-page-body {
+	overflow-y: auto;
 	overflow-x: hidden;
 }
 

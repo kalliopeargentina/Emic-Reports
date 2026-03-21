@@ -315,6 +315,7 @@ LIMIT 10;
 > [!BUG]
 > This is a **bug** callout. Found an issue!
 
+
 > [!EXAMPLE]
 > This is an **example** callout with a demonstration.
 
