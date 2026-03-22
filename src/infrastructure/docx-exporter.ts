@@ -13,6 +13,7 @@ import {
 	ShadingType,
 	Table,
 	TableCell,
+	TableLayoutType,
 	TableRow,
 	TextRun,
 	TextWrappingSide,
@@ -1334,7 +1335,9 @@ export class DocxExporter {
 		return {
 			table: new Table({
 				rows: tableRows,
-				width: { size: 100, type: WidthType.PERCENTAGE },
+				/** Match HTML/PDF: shrink to content + centered (not full page width). */
+				layout: TableLayoutType.AUTOFIT,
+				alignment: AlignmentType.CENTER,
 			}),
 			nextIndex: start + rows.length + 2,
 		};
