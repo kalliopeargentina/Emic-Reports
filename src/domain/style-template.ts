@@ -29,9 +29,18 @@ export interface StyleTokens {
 	pageMarginLeft: string;
 	pageBackgroundColor: string;
 
-	/* --- Links --- */
-	linkColor: string;
-	linkUnderline: boolean;
+	/* --- Links & tags (HTML, PDF, DOCX) --- */
+	/**
+	 * HTML/PDF/DOCX: markdown links to http(s)/mailto (and DOCX external hyperlinks).
+	 */
+	exportLinkExternalColor: string;
+	exportLinkExternalUnderline: boolean;
+	/** HTML/PDF/DOCX: `#…` anchors, vault paths, file targets (and DOCX internal hyperlinks). */
+	exportLinkInternalColor: string;
+	exportLinkInternalUnderline: boolean;
+	/** HTML/PDF/DOCX: Obsidian-style `#tag` / `#a/b` inline tags. */
+	exportInlineTagColor: string;
+	exportInlineTagUnderline: boolean;
 
 	/* --- Emphasis --- */
 	strongColor: string;
@@ -201,8 +210,12 @@ export const DEFAULT_STYLE_TOKENS: StyleTokens = {
 	pageMarginLeft: "2cm",
 	pageBackgroundColor: "#ffffff",
 
-	linkColor: "#000000",
-	linkUnderline: false,
+	exportLinkExternalColor: "#0563C1",
+	exportLinkExternalUnderline: true,
+	exportLinkInternalColor: "#0563C1",
+	exportLinkInternalUnderline: true,
+	exportInlineTagColor: "#1565C0",
+	exportInlineTagUnderline: true,
 
 	strongColor: "#000000",
 	emColor: "#000000",
@@ -309,8 +322,22 @@ export const DEFAULT_PRINT_RULES: PrintRules = {
 	prePageBreakInside: "avoid",
 };
 
+/**
+ * Merges saved template tokens. Migrates legacy `linkColor` / `linkUnderline` into
+ * `exportLinkInternalColor` / `exportLinkInternalUnderline` when the new keys are absent.
+ */
 export function mergeStyleTokens(partial: Partial<StyleTokens>): StyleTokens {
-	const merged: StyleTokens = { ...DEFAULT_STYLE_TOKENS, ...partial };
+	const raw = partial as Record<string, unknown>;
+	const legacyLinkColor = raw.linkColor;
+	const legacyLinkUnderline = raw.linkUnderline;
+	const { linkColor: _lc, linkUnderline: _lu, ...rest } = raw;
+	const merged: StyleTokens = { ...DEFAULT_STYLE_TOKENS, ...(rest as Partial<StyleTokens>) };
+	if (typeof legacyLinkColor === "string" && partial.exportLinkInternalColor === undefined) {
+		merged.exportLinkInternalColor = legacyLinkColor;
+	}
+	if (typeof legacyLinkUnderline === "boolean" && partial.exportLinkInternalUnderline === undefined) {
+		merged.exportLinkInternalUnderline = legacyLinkUnderline;
+	}
 	const legacy = partial.mathScalePercent ?? DEFAULT_STYLE_TOKENS.mathScalePercent;
 	if (partial.mathInlineScalePercent === undefined) {
 		merged.mathInlineScalePercent = legacy;

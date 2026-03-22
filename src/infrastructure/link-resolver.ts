@@ -1,7 +1,8 @@
 import { TFile, type App } from "obsidian";
-import type { ReportProject } from "../domain/report-project";
+import { getPrimaryMarkdownSourcePath, type ReportProject } from "../domain/report-project";
 import { mergeStyleTokens } from "../domain/style-template";
 import { expandHighlightsInMarkdown } from "./highlight-export";
+import { slugifyHeadingForAnchor } from "./markdown-heading-slug";
 
 export type LinkResolveOptions = {
 	/** When true, keep ==highlight== as Markdown for the DOCX path (parser handles it). */
@@ -47,20 +48,30 @@ function parseEmbedLinkBody(linkBody: string): ParsedEmbedLink {
 	return { path, headingRef: anchor, sizeSpec };
 }
 
-function slugifyObsidianHeading(title: string): string {
-	return title
-		.trim()
-		.toLowerCase()
-		.replace(/[\s_]+/g, "-")
-		.replace(/[^\p{L}\p{N}\-]/gu, "");
-}
-
 function headingsMatch(title: string, ref: string): boolean {
 	const t = title.trim();
 	const r = ref.trim();
 	if (t.localeCompare(r, undefined, { sensitivity: "accent" }) === 0) return true;
-	if (slugifyObsidianHeading(t) === slugifyObsidianHeading(r)) return true;
+	if (slugifyHeadingForAnchor(t) === slugifyHeadingForAnchor(r)) return true;
 	return false;
+}
+
+function escapeMarkdownLinkLabel(label: string): string {
+	return label.replace(/\\/g, "\\\\").replace(/\]/g, "\\]");
+}
+
+/** Split `[[path#ref|alias]]` into parts (main segment only, before first `|`). */
+function parseWikiLinkForReplacer(linkBody: string): {
+	pathPart: string;
+	headingRef?: string;
+	blockId?: string;
+	alias?: string;
+} {
+	const pipeIdx = linkBody.indexOf("|");
+	const main = (pipeIdx >= 0 ? linkBody.slice(0, pipeIdx) : linkBody).trim();
+	const alias = pipeIdx >= 0 ? linkBody.slice(pipeIdx + 1).trim() : undefined;
+	const p = parseEmbedLinkBody(main);
+	return { pathPart: p.path, headingRef: p.headingRef, blockId: p.blockId, alias };
 }
 
 function extractHeadingSection(markdown: string, headingRef: string): string {
@@ -218,14 +229,44 @@ export class LinkResolver {
 			? withEmbeds
 			: expandHighlightsInMarkdown(withEmbeds, tokens.highlightDefaultBackground);
 
+		const sourcePath = getPrimaryMarkdownSourcePath(_project);
+
 		const withWikiLinks = replaceWikiLinksOutsideCode(afterHighlights, (linkBody: string) => {
-			const [rawPath, alias] = linkBody.split("|");
-			const normalizedPath = (rawPath ?? "").trim();
-			const file = this.app.metadataCache.getFirstLinkpathDest(normalizedPath, "");
-			if (!file) return alias ? alias.trim() : normalizedPath;
+			const { pathPart, headingRef, blockId, alias } = parseWikiLinkForReplacer(linkBody);
+
+			const resolveFile = (): TFile | null => {
+				if (pathPart) {
+					return this.app.metadataCache.getFirstLinkpathDest(pathPart, sourcePath);
+				}
+				const cur = this.app.vault.getAbstractFileByPath(sourcePath);
+				return cur instanceof TFile ? cur : null;
+			};
+
+			if (blockId) {
+				const file = resolveFile();
+				if (!file) return alias ?? linkBody;
+				const href = encodeURI(file.path);
+				const label = alias?.trim() || file.basename;
+				return `[${escapeMarkdownLinkLabel(label)}](${href})`;
+			}
+
+			if (headingRef) {
+				const fragment = slugifyHeadingForAnchor(headingRef);
+				if (!pathPart) {
+					const label = alias?.trim() || headingRef;
+					return `[${escapeMarkdownLinkLabel(label)}](#${fragment})`;
+				}
+				const file = this.app.metadataCache.getFirstLinkpathDest(pathPart, sourcePath);
+				if (!file) return alias?.trim() ?? linkBody;
+				const label = alias?.trim() || headingRef;
+				return `[${escapeMarkdownLinkLabel(label)}](${encodeURI(file.path)}#${fragment})`;
+			}
+
+			const file = this.app.metadataCache.getFirstLinkpathDest(pathPart, sourcePath);
+			if (!file) return alias?.trim() ?? pathPart;
 			const href = encodeURI(file.path);
 			const label = alias?.trim() || file.basename;
-			return `[${label}](${href})`;
+			return `[${escapeMarkdownLinkLabel(label)}](${href})`;
 		});
 
 		return withWikiLinks;

@@ -64,6 +64,10 @@ export class CssTemplateEngine {
 	--ra-page-height: ${pageSize.height};
 	--ra-code-bg: ${t.codeBlockBackground};
 	--ra-code-normal: ${t.codeNormalColor};
+	--ra-export-link-external-color: ${t.exportLinkExternalColor};
+	--ra-export-link-external-underline: ${t.exportLinkExternalUnderline ? 1 : 0};
+	--ra-export-link-internal-color: ${t.exportLinkInternalColor};
+	--ra-export-link-internal-underline: ${t.exportLinkInternalUnderline ? 1 : 0};
 }
 
 .ra-render-frame {
@@ -79,11 +83,28 @@ export class CssTemplateEngine {
 	print-color-adjust: exact;
 }
 
+/* Generic anchor fallback (TOC/plugins); refined by external/internal rules below. */
 .ra-render-frame a:link,
 .ra-render-frame a:visited,
 .ra-render-frame a {
-	color: ${t.linkColor} !important;
-	text-decoration: ${t.linkUnderline ? "underline" : "none"} !important;
+	color: ${t.exportLinkInternalColor} !important;
+	text-decoration: ${t.exportLinkInternalUnderline ? "underline" : "none"} !important;
+}
+
+.ra-render-frame a[href^="http://"],
+.ra-render-frame a[href^="https://"],
+.ra-render-frame a[href^="mailto:"] {
+	color: ${t.exportLinkExternalColor} !important;
+	text-decoration: ${t.exportLinkExternalUnderline ? "underline" : "none"} !important;
+	-webkit-print-color-adjust: exact !important;
+	print-color-adjust: exact !important;
+}
+
+.ra-render-frame a[href]:not([href^="http://"]):not([href^="https://"]):not([href^="mailto:"]) {
+	color: ${t.exportLinkInternalColor} !important;
+	text-decoration: ${t.exportLinkInternalUnderline ? "underline" : "none"} !important;
+	-webkit-print-color-adjust: exact !important;
+	print-color-adjust: exact !important;
 }
 
 .ra-render-frame p {

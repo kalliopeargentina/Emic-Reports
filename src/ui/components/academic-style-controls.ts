@@ -134,14 +134,52 @@ export function renderAcademicStyleControls(
 				.onChange((v) => patchTokens({ pageBackgroundColor: v })),
 		);
 
-	sectionHeading(container, "Links");
+	sectionHeading(container, "Links & tags (HTML, PDF, DOCX)");
 	new Setting(container)
-		.setName("Link color")
-		.addColorPicker((picker) => picker.setValue(t.linkColor).onChange((v) => patchTokens({ linkColor: v })));
+		.setName("External link color (http, mailto)")
+		.setDesc(
+			":root variables --ra-export-link-external-*, --ra-export-link-internal-*, --ra-export-inline-tag-* (see generated CSS).",
+		)
+		.addColorPicker((picker) =>
+			picker
+				.setValue(t.exportLinkExternalColor)
+				.onChange((v) => patchTokens({ exportLinkExternalColor: v })),
+		);
 	new Setting(container)
-		.setName("Underline links")
+		.setName("External link underline")
 		.addToggle((toggle) =>
-			toggle.setValue(t.linkUnderline).onChange((v) => patchTokens({ linkUnderline: v })),
+			toggle
+				.setValue(t.exportLinkExternalUnderline)
+				.onChange((v) => patchTokens({ exportLinkExternalUnderline: v })),
+		);
+	new Setting(container)
+		.setName("Internal link color (headings, vault paths)")
+		.addColorPicker((picker) =>
+			picker
+				.setValue(t.exportLinkInternalColor)
+				.onChange((v) => patchTokens({ exportLinkInternalColor: v })),
+		);
+	new Setting(container)
+		.setName("Internal link underline")
+		.addToggle((toggle) =>
+			toggle
+				.setValue(t.exportLinkInternalUnderline)
+				.onChange((v) => patchTokens({ exportLinkInternalUnderline: v })),
+		);
+	new Setting(container)
+		.setName("Inline tag color (#tag)")
+		.setDesc("DOCX only: in HTML/PDF preview and PDF export, inline #tags stay plain body text.")
+		.addColorPicker((picker) =>
+			picker
+				.setValue(t.exportInlineTagColor)
+				.onChange((v) => patchTokens({ exportInlineTagColor: v })),
+		);
+	new Setting(container)
+		.setName("Inline tag underline")
+		.addToggle((toggle) =>
+			toggle
+				.setValue(t.exportInlineTagUnderline)
+				.onChange((v) => patchTokens({ exportInlineTagUnderline: v })),
 		);
 
 	sectionHeading(container, "Emphasis");

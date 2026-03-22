@@ -32,6 +32,7 @@ export async function generatePreview(
 	const markdown = await composer.compose(project);
 	const resolvedMarkdown = await linkResolver.resolve(project, markdown);
 	const exportMarkdown = applyExportMarkdownTransforms(resolvedMarkdown);
+	/** Inline `#tags` stay plain text in HTML/PDF (no faux links). DOCX may still style tags separately. */
 	let html = await renderer.render(project, exportMarkdown);
 	html = prependCoverHtml(project, html);
 	const assetTarget = options?.assetLinkTarget ?? "obsidian";

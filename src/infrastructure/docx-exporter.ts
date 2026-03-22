@@ -1,10 +1,12 @@
 import {
 	AlignmentType,
 	BorderStyle,
+	Bookmark,
 	Document,
 	ExternalHyperlink,
 	FootnoteReferenceRun,
 	HeadingLevel,
+	InternalHyperlink,
 	HorizontalPositionAlign,
 	HorizontalPositionRelativeFrom,
 	ImageRun,
@@ -58,6 +60,7 @@ import { rasterizeSvgWithResvg } from "./resvg-rasterizer";
 import { normalizeMermaidSvgForRaster } from "./mermaid-svg-normalize";
 import { highlightCodeToDocxRuns } from "./docx-code-highlight";
 import { findMarkdownInlineLinks } from "./docx-markdown-links";
+import { slugifyHeadingForAnchor } from "./markdown-heading-slug";
 import { preprocessDocxFootnotesForExport } from "./docx-footnotes-preprocess";
 import { DocxMathRasterSession } from "./docx-math-raster-session";
 import { docxMathImageTransformationPx } from "./math-export-sizing";
@@ -223,6 +226,11 @@ export class DocxExporter {
 	private docxFootnoteIdToLabel = new Map<number, string>();
 	private docxFootnoteNextId = 1;
 
+	/** Bookmark ids used in this export (DOCX internal heading links). */
+	private docxBookmarkIdsUsed = new Set<string>();
+	/** First heading slug → bookmark id Word uses for {@link InternalHyperlink}. */
+	private docxHeadingAnchorBySlug = new Map<string, string>();
+
 	constructor(
 		private app: App,
 		private component: Component,
@@ -232,6 +240,26 @@ export class DocxExporter {
 		this.docxFootnoteLabelToId.clear();
 		this.docxFootnoteIdToLabel.clear();
 		this.docxFootnoteNextId = 1;
+	}
+
+	private resetDocxHeadingBookmarks(): void {
+		this.docxBookmarkIdsUsed.clear();
+		this.docxHeadingAnchorBySlug.clear();
+	}
+
+	/** Stable bookmark id for a heading; duplicates become `slug-2`, etc. */
+	private allocateDocxHeadingBookmarkId(headingRawMarkdownTitle: string): string {
+		const base = slugifyHeadingForAnchor(headingRawMarkdownTitle);
+		let id = base;
+		let n = 2;
+		while (this.docxBookmarkIdsUsed.has(id)) {
+			id = `${base}-${n++}`;
+		}
+		this.docxBookmarkIdsUsed.add(id);
+		if (!this.docxHeadingAnchorBySlug.has(base)) {
+			this.docxHeadingAnchorBySlug.set(base, id);
+		}
+		return id;
 	}
 
 	/** Assign a sequential Word footnote id on first reference to `label`. */
@@ -307,6 +335,21 @@ export class DocxExporter {
 		return "file:///" + norm;
 	}
 
+	/** `[text](#slug)` → bookmark id if a heading registered that slug in this export. */
+	private tryDocxInternalBookmarkFromHref(href: string): string | null {
+		const t = decodeUriSafe(href.trim());
+		if (!t.startsWith("#") || t.slice(1).includes("#")) return null;
+		const frag = t.slice(1).trim();
+		if (!frag) return null;
+		let key = frag;
+		try {
+			key = decodeURIComponent(frag);
+		} catch {
+			/* keep frag */
+		}
+		return this.docxHeadingAnchorBySlug.get(key) ?? null;
+	}
+
 	private async buildDocxFootnotesPayload(
 		tokens: StyleTokens,
 		mathSession: DocxMathRasterSession,
@@ -339,6 +382,7 @@ export class DocxExporter {
 			preprocessDocxFootnotesForExport(markdown.split("\n"));
 		this.docxFootnoteDefs = footnoteDefs;
 		this.resetDocxFootnoteReferenceState();
+		this.resetDocxHeadingBookmarks();
 		const markdownForBlocks = footnoteStrippedLines.join("\n");
 		const blocks = await this.markdownToBlocks(
 			markdownForBlocks,
@@ -534,20 +578,20 @@ export class DocxExporter {
 					headingCounters,
 					headingNumbering,
 				);
+				const headingBookmarkId = this.allocateDocxHeadingBookmarkId(headingText);
+				const headingRun = new TextRun({
+					text: numberedText,
+					color: this.toDocxColor(tokens.colorText),
+					font: level === 1 ? tokens.h1FontFamily : tokens.fontHeading,
+					size: this.ptToHalfPoint(this.getHeadingSize(level, tokens)),
+					bold:
+						level === 1
+							? tokens.h1FontWeight === "bold"
+							: tokens.headingFontWeight >= 700,
+				});
 				output.push(
 					new Paragraph({
-						children: [
-							new TextRun({
-								text: numberedText,
-								color: this.toDocxColor(tokens.colorText),
-								font: level === 1 ? tokens.h1FontFamily : tokens.fontHeading,
-								size: this.ptToHalfPoint(this.getHeadingSize(level, tokens)),
-								bold:
-									level === 1
-										? tokens.h1FontWeight === "bold"
-										: tokens.headingFontWeight >= 700,
-							}),
-						],
+						children: [new Bookmark({ id: headingBookmarkId, children: [headingRun] })],
 						heading: this.toHeadingLevel(level),
 						alignment: this.toAlignment(level === 1 ? tokens.h1TextAlign : "left"),
 						spacing: {
@@ -1000,6 +1044,91 @@ export class DocxExporter {
 		});
 	}
 
+	/** DOCX text run props for export-tuned link/tag colors (see StyleTokens `exportLink*` / `exportInlineTag*`). */
+	private docxExportLinkTextRunProps(
+		tokens: StyleTokens,
+		kind: "external" | "internal" | "inlineTag",
+		highlightFill: string | undefined,
+	): {
+		color: string;
+		underline: Record<string, never> | undefined;
+		font: string;
+		size: number;
+		shading: { type: (typeof ShadingType)[keyof typeof ShadingType]; fill: string } | undefined;
+	} {
+		const hl =
+			highlightFill !== undefined ? { type: ShadingType.CLEAR, fill: highlightFill } : undefined;
+		if (kind === "external") {
+			return {
+				color: this.toDocxColor(tokens.exportLinkExternalColor),
+				underline: tokens.exportLinkExternalUnderline ? {} : undefined,
+				font: tokens.fontBody,
+				size: this.ptToHalfPoint(tokens.fontSizeBody),
+				shading: hl,
+			};
+		}
+		if (kind === "internal") {
+			return {
+				color: this.toDocxColor(tokens.exportLinkInternalColor),
+				underline: tokens.exportLinkInternalUnderline ? {} : undefined,
+				font: tokens.fontBody,
+				size: this.ptToHalfPoint(tokens.fontSizeBody),
+				shading: hl,
+			};
+		}
+		return {
+			color: this.toDocxColor(tokens.exportInlineTagColor),
+			underline: tokens.exportInlineTagUnderline ? {} : undefined,
+			font: tokens.fontBody,
+			size: this.ptToHalfPoint(tokens.fontSizeBody),
+			shading: hl,
+		};
+	}
+
+	/** Obsidian-style `#tag` / `#a/b` after a word boundary (matches HTML export tag regex). */
+	private splitTextRunsWithObsidianTags(
+		text: string,
+		tokens: StyleTokens,
+		highlightFill: string | undefined,
+	): TextRun[] {
+		if (!text) return [];
+		const hl =
+			highlightFill !== undefined ? { type: ShadingType.CLEAR, fill: highlightFill } : undefined;
+		const baseText = {
+			color: this.toDocxColor(tokens.colorText),
+			font: tokens.fontBody,
+			size: this.ptToHalfPoint(tokens.fontSizeBody),
+			shading: hl,
+		};
+		const runs: TextRun[] = [];
+		let buf = "";
+		const flushBuf = (): void => {
+			if (!buf) return;
+			runs.push(new TextRun({ text: buf, ...baseText }));
+			buf = "";
+		};
+		let i = 0;
+		while (i < text.length) {
+			const ch = text[i]!;
+			if (ch === "#" && (i === 0 || !/\w/.test(text[i - 1]!))) {
+				const tail = text.slice(i);
+				const m = /^#([a-zA-Z0-9_][a-zA-Z0-9_/\-]*)/.exec(tail);
+				if (m) {
+					flushBuf();
+					const full = m[0] ?? "";
+					const p = this.docxExportLinkTextRunProps(tokens, "inlineTag", highlightFill);
+					runs.push(new TextRun({ text: full, ...p }));
+					i += full.length;
+					continue;
+				}
+			}
+			buf += ch;
+			i += 1;
+		}
+		flushBuf();
+		return runs;
+	}
+
 	/**
 	 * Plain segment with `$...$` inline math only (no `[^refs]`).
 	 * Prefetches unique formulas in parallel (session dedupes + concurrency cap), then stitches runs.
@@ -1023,15 +1152,7 @@ export class DocxExporter {
 		for (const m of matches) {
 			const start = m.index ?? 0;
 			if (start > last) {
-				runs.push(
-					new TextRun({
-						text: slice.slice(last, start),
-						color: this.toDocxColor(tokens.colorText),
-						font: tokens.fontBody,
-						size: this.ptToHalfPoint(tokens.fontSizeBody),
-						shading: hl,
-					}),
-				);
+				runs.push(...this.splitTextRunsWithObsidianTags(slice.slice(last, start), tokens, highlightFill));
 			}
 			const raw = m[0] ?? "";
 			const tex = (m[1] ?? "").trim();
@@ -1064,15 +1185,7 @@ export class DocxExporter {
 			last = start + raw.length;
 		}
 		if (last < slice.length) {
-			runs.push(
-				new TextRun({
-					text: slice.slice(last),
-					color: this.toDocxColor(tokens.colorText),
-					font: tokens.fontBody,
-					size: this.ptToHalfPoint(tokens.fontSizeBody),
-					shading: hl,
-				}),
-			);
+			runs.push(...this.splitTextRunsWithObsidianTags(slice.slice(last), tokens, highlightFill));
 		}
 		return runs;
 	}
@@ -1126,9 +1239,10 @@ export class DocxExporter {
 		tokens: StyleTokens,
 		mathSession: DocxMathRasterSession,
 		linkSourcePath: string,
-	): Promise<Array<TextRun | ExternalHyperlink | ImageRun | FootnoteReferenceRun>> {
+	): Promise<Array<TextRun | ExternalHyperlink | InternalHyperlink | ImageRun | FootnoteReferenceRun>> {
 		const segs = segmentHighlightSyntax(text);
-		const out: Array<TextRun | ExternalHyperlink | ImageRun | FootnoteReferenceRun> = [];
+		const out: Array<TextRun | ExternalHyperlink | InternalHyperlink | ImageRun | FootnoteReferenceRun> =
+			[];
 		const defaultFill = defaultHighlightCssToDocxFill(tokens.highlightDefaultBackground);
 
 		for (const seg of segs) {
@@ -1165,8 +1279,9 @@ export class DocxExporter {
 		tokens: StyleTokens,
 		highlightFill: string | undefined,
 		mathSession: DocxMathRasterSession,
-	): Promise<Array<TextRun | ExternalHyperlink | ImageRun | FootnoteReferenceRun>> {
-		const runs: Array<TextRun | ExternalHyperlink | ImageRun | FootnoteReferenceRun> = [];
+	): Promise<Array<TextRun | ExternalHyperlink | InternalHyperlink | ImageRun | FootnoteReferenceRun>> {
+		const runs: Array<TextRun | ExternalHyperlink | InternalHyperlink | ImageRun | FootnoteReferenceRun> =
+			[];
 		const hl =
 			highlightFill !== undefined ? { type: ShadingType.CLEAR, fill: highlightFill } : undefined;
 		const pattern = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|~~[^~]+~~)/g;
@@ -1249,7 +1364,7 @@ export class DocxExporter {
 		highlightFill: string | undefined,
 		mathSession: DocxMathRasterSession,
 		linkSourcePath: string,
-	): Promise<Array<TextRun | ExternalHyperlink | ImageRun | FootnoteReferenceRun>> {
+	): Promise<Array<TextRun | ExternalHyperlink | InternalHyperlink | ImageRun | FootnoteReferenceRun>> {
 		const hl =
 			highlightFill !== undefined ? { type: ShadingType.CLEAR, fill: highlightFill } : undefined;
 
@@ -1258,7 +1373,8 @@ export class DocxExporter {
 			return this.inlineRunsPlainDecoratorsOnlyAsync(text, tokens, highlightFill, mathSession);
 		}
 
-		const runs: Array<TextRun | ExternalHyperlink | ImageRun | FootnoteReferenceRun> = [];
+		const runs: Array<TextRun | ExternalHyperlink | InternalHyperlink | ImageRun | FootnoteReferenceRun> =
+			[];
 		let last = 0;
 		for (const r of linkRanges) {
 			if (r.start > last) {
@@ -1271,22 +1387,28 @@ export class DocxExporter {
 					)),
 				);
 			}
-			const resolved = this.resolveDocxHyperlinkHref(r.href, linkSourcePath);
-			runs.push(
-				new ExternalHyperlink({
-					link: resolved,
-					children: [
-						new TextRun({
-							text: r.label,
-							color: this.toDocxColor(tokens.linkColor),
-							underline: tokens.linkUnderline ? {} : undefined,
-							font: tokens.fontBody,
-							size: this.ptToHalfPoint(tokens.fontSizeBody),
-							shading: hl,
-						}),
-					],
-				}),
-			);
+			const internalBm = this.tryDocxInternalBookmarkFromHref(r.href);
+			const linkKind: "internal" | "external" = internalBm ? "internal" : "external";
+			const linkRun = new TextRun({
+				text: r.label,
+				...this.docxExportLinkTextRunProps(tokens, linkKind, highlightFill),
+			});
+			if (internalBm) {
+				runs.push(
+					new InternalHyperlink({
+						anchor: internalBm,
+						children: [linkRun],
+					}),
+				);
+			} else {
+				const resolved = this.resolveDocxHyperlinkHref(r.href, linkSourcePath);
+				runs.push(
+					new ExternalHyperlink({
+						link: resolved,
+						children: [linkRun],
+					}),
+				);
+			}
 			last = r.end;
 		}
 		if (last < text.length) {

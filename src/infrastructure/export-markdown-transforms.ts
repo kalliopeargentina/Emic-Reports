@@ -3,6 +3,8 @@
  * Does not change vault files — applied to resolved markdown before render/export.
  */
 
+import { slugifyHeadingForAnchor } from "./markdown-heading-slug";
+
 /**
  * Emic-Charts-View builds chart config from `dataProps.options` (see `parseConfig` in that plugin).
  * Top-level `theme:` in the fence YAML is ignored — theme must be under `options.theme`.
@@ -93,7 +95,51 @@ export function forceEmicChartsLightThemeForExport(markdown: string): string {
 	return out.join("\n");
 }
 
+/**
+ * Turn Obsidian inline tags `#tag` / `#a/b` into `[#tag](#slug)` so HTML/PDF anchors match headings.
+ * Runs after wikilinks are resolved. Skips fenced code and `` `inline code` `` spans.
+ * Does not match `#` inside `](...)` link destinations or after `[[` (already converted).
+ */
+export function expandInlineHashtagsToAnchorLinks(markdown: string): string {
+	const lines = markdown.split("\n");
+	let inFence = false;
+	const out: string[] = [];
+	/** Avoid `#` in `]( #fragment )` and similar; skip `[[` contexts left in text. */
+	const tagRe =
+		/(?<![(/<#[\w\[])#(?![#\s])([a-zA-Z0-9\u00C0-\u024F][a-zA-Z0-9_./\-\u00C0-\u024F]*)/gu;
+
+	for (const line of lines) {
+		const trimmedStart = line.trimStart();
+		if (trimmedStart.startsWith("```") || trimmedStart.startsWith("~~~")) {
+			inFence = !inFence;
+			out.push(line);
+			continue;
+		}
+		if (inFence) {
+			out.push(line);
+			continue;
+		}
+		out.push(expandHashtagsOutsideInlineCode(line, tagRe));
+	}
+	return out.join("\n");
+}
+
+function expandHashtagsOutsideInlineCode(line: string, tagRe: RegExp): string {
+	const parts = line.split(/(`[^`]*`)/);
+	return parts
+		.map((part, idx) => {
+			if (idx % 2 === 1) return part;
+			return part.replace(tagRe, (_full, name: string) => {
+				const slug = slugifyHeadingForAnchor(name.replace(/\//g, "-"));
+				return `[#${name}](#${slug})`;
+			});
+		})
+		.join("");
+}
+
 /** Apply all export-time transforms (single entry point). */
 export function applyExportMarkdownTransforms(markdown: string): string {
-	return forceEmicChartsLightThemeForExport(markdown);
+	let md = forceEmicChartsLightThemeForExport(markdown);
+	md = expandInlineHashtagsToAnchorLinks(md);
+	return md;
 }
