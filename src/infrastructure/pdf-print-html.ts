@@ -1,52 +1,14 @@
 import type { ReportProject } from "../domain/report-project";
-import { mergeStyleTokens } from "../domain/style-template";
 import { paginateHtml } from "./html-paginator";
-import { PageSizeResolver } from "./page-size-resolver";
+import { buildPrintPageLayoutCss } from "./print-layout-css";
 
-const pageSizeResolver = new PageSizeResolver();
+/** @public Re-export for callers that already imported from this module. */
+export { buildPrintPageLayoutCss } from "./print-layout-css";
 
 /** Same shape as the PDF exporter input. */
 export interface HtmlPreviewBundle {
 	html: string;
 	css: string;
-}
-
-/**
- * Shared layout CSS for print sheet + body (PDF and isolated preview iframe).
- * Keeps preview visually aligned with {@link buildPrintableHtmlDocument}.
- */
-export function buildPrintPageLayoutCss(project: ReportProject): string {
-	const page = pageSizeResolver.resolve(project);
-	const t = mergeStyleTokens(project.styleTemplate.tokens);
-	return `
-html, body { margin: 0; background: ${t.pageBackgroundColor} !important; }
-.ra-print-sheet {
-	width: ${page.width};
-	height: ${page.height};
-	margin: 0 auto;
-	page-break-after: always;
-	box-sizing: border-box;
-	background: ${t.pageBackgroundColor};
-}
-.ra-export-page-body {
-	height: 100%;
-	overflow: hidden;
-	box-sizing: border-box;
-	padding-top: ${t.pageMarginTop};
-	padding-right: ${t.pageMarginRight};
-	padding-bottom: ${t.pageMarginBottom};
-	padding-left: ${t.pageMarginLeft};
-}
-/* Large figures: cap to sheet; keep wikilink img dimensions when smaller (no width/height override). */
-.ra-print-sheet .ra-export-page-body img:not(.ra-math-export-img),
-.ra-print-sheet .ra-export-page-body svg {
-	max-width: 100% !important;
-	max-height: calc(${page.height} - ${t.pageMarginTop} - ${t.pageMarginBottom}) !important;
-	object-fit: contain !important;
-	object-position: center !important;
-	box-sizing: border-box !important;
-}
-`.trim();
 }
 
 /** Avoid breaking out of &lt;script&gt; if user HTML contains literal &lt;/script&gt; (e.g. code samples). */
@@ -86,7 +48,7 @@ export function buildIsolatedPreviewPageDocument(
  * Shared with {@link PdfExporterElectron} and PDF smoke tests so tests exercise real output shape.
  */
 export function buildPrintableHtmlDocument(project: ReportProject, bundle: HtmlPreviewBundle): string {
-	const pages = paginateHtml(project, bundle.html);
+	const pages = paginateHtml(project, bundle.html, { exportCss: bundle.css });
 	const layoutCss = buildPrintPageLayoutCss(project);
 	return `<!DOCTYPE html>
 <html>

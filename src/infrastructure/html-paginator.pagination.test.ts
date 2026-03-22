@@ -1,9 +1,15 @@
 // @vitest-environment happy-dom
 
 import { describe, expect, it } from "vitest";
-import { createEmptyProject } from "../domain/report-project";
+import { createEmptyProject, type ReportProject } from "../domain/report-project";
+import { CssTemplateEngine } from "./css-template-engine";
 import { paginateHtml } from "./html-paginator";
 
+/** Match PDF/preview: paginator measures with full export CSS. */
+function paginateLikeExport(project: ReportProject, html: string): string[] {
+	const css = new CssTemplateEngine().build(project);
+	return paginateHtml(project, html, { exportCss: css });
+}
 
 function countSubstr(hay: string, needle: string): number {
 	let n = 0;
@@ -24,7 +30,7 @@ describe("paginateHtml consecutive hr (blank sheets)", () => {
 		project.customPageSize = { width: 210, height: 200, unit: "mm" };
 
 		const html = `<div><p id="a">A</p><hr><hr><p id="b">B</p></div>`;
-		const pages = paginateHtml(project, html);
+		const pages = paginateLikeExport(project, html);
 		// A | (blank) | B  → 3 sheets; middle page has no element markup
 		expect(pages.length).toBe(3);
 		expect(pages[0]).toContain('id="a"');
@@ -38,7 +44,7 @@ describe("paginateHtml consecutive hr (blank sheets)", () => {
 		project.customPageSize = { width: 210, height: 200, unit: "mm" };
 
 		const html = `<div><hr><p id="only">Only</p></div>`;
-		const pages = paginateHtml(project, html);
+		const pages = paginateLikeExport(project, html);
 		expect(pages.length).toBe(1);
 		expect(pages[0]).toContain('id="only"');
 	});
@@ -61,7 +67,7 @@ describe("paginateHtml integration", () => {
 		const inputCallouts = countSubstr(html, "blockquote");
 		expect(inputCallouts).toBeGreaterThan(0);
 
-		const pages = paginateHtml(project, html);
+		const pages = paginateLikeExport(project, html);
 		const merged = pages.join("\n");
 		expect(countSubstr(merged, "blockquote")).toBe(inputCallouts);
 		expect(merged).toContain("data-callout=\"note\"");
@@ -79,7 +85,7 @@ describe("paginateHtml integration", () => {
 		}
 		const html = `<div>${parts.join("")}</div>`;
 
-		const pages = paginateHtml(project, html);
+		const pages = paginateLikeExport(project, html);
 		const merged = pages.join("");
 		for (let i = 0; i < 12; i++) {
 			expect(merged).toContain(`id="p-${i}"`);

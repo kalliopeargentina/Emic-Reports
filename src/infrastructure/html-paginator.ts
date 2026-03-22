@@ -1,4 +1,5 @@
 import type { ReportProject } from "../domain/report-project";
+import { buildPrintPageLayoutCss } from "./print-layout-css";
 import { PageSizeResolver } from "./page-size-resolver";
 
 const pageSizeResolver = new PageSizeResolver();
@@ -112,8 +113,13 @@ export function splitCalloutByContentBlocks(originalNode: HTMLElement): HTMLElem
 	return segments;
 }
 
-/** Match preview modal + PDF sheet body (see pdf-print-html); avoid Obsidian markdown-* classes in measure host. */
-const PAGE_BODY_CLASSES = "ra-render-frame ra-page-body ra-export-page-body";
+export type PaginateHtmlOptions = {
+	/**
+	 * Full export stylesheet (same as PDF `<head>`). When set, pagination uses the same typography
+	 * and layout rules as Chromium print so page counts match PDF/preview iframe.
+	 */
+	exportCss?: string;
+};
 
 function createDiv(cls: string): HTMLDivElement {
 	const el = document.createElement("div");
@@ -125,25 +131,27 @@ function clearElement(el: HTMLElement): void {
 	el.replaceChildren();
 }
 
-export function paginateHtml(project: ReportProject, html: string): string[] {
+export function paginateHtml(project: ReportProject, html: string, options?: PaginateHtmlOptions): string[] {
 	const pageSize = pageSizeResolver.resolve(project);
 	const measureHost = createDiv("ra-measure-source");
 	measureHost.style.width = pageSize.width;
 	measureHost.style.minHeight = pageSize.height;
 	document.body.appendChild(measureHost);
 
-	const frame = createDiv("ra-paper-frame");
-	frame.style.width = pageSize.width;
-	frame.style.height = pageSize.height;
-	applyPageStyles(frame, project);
-	frame.style.paddingTop = project.styleTemplate.tokens.pageMarginTop;
-	frame.style.paddingRight = project.styleTemplate.tokens.pageMarginRight;
-	frame.style.paddingBottom = project.styleTemplate.tokens.pageMarginBottom;
-	frame.style.paddingLeft = project.styleTemplate.tokens.pageMarginLeft;
-	measureHost.appendChild(frame);
+	/** Same tree as PDF / preview iframe: sheet → export body (margins from layout CSS, not inline on a wrapper). */
+	const sheet = createDiv("ra-print-sheet");
+	const body = createDiv("ra-render-frame ra-export-page-body");
+	sheet.appendChild(body);
+	measureHost.appendChild(sheet);
 
-	const body = createDiv(PAGE_BODY_CLASSES);
-	frame.appendChild(body);
+	const styleEl = document.createElement("style");
+	styleEl.setAttribute("data-ra-paginate-measure", "1");
+	const exportPart = options?.exportCss?.trim() ? `${options.exportCss}\n` : "";
+	styleEl.textContent = `${exportPart}${buildPrintPageLayoutCss(project)}`;
+	document.head.appendChild(styleEl);
+
+	/** Fallback / reinforce tokens when export CSS is minimal (tests). */
+	applyPageStyles(body, project);
 
 	const doc = new DOMParser().parseFromString(`<div id="ra-root">${html}</div>`, "text/html");
 	const sourceRoot = doc.getElementById("ra-root");
@@ -161,6 +169,7 @@ export function paginateHtml(project: ReportProject, html: string): string[] {
 		clearElement(body);
 	};
 
+	try {
 	while (queue.length > 0) {
 		const originalNode = queue.shift()!;
 		const tagName = originalNode.tagName.toUpperCase();
@@ -214,7 +223,10 @@ export function paginateHtml(project: ReportProject, html: string): string[] {
 	}
 
 	pushPage();
-	measureHost.remove();
+	} finally {
+		styleEl.remove();
+		measureHost.remove();
+	}
 
 	if (pageElements.length === 0) {
 		return [html];

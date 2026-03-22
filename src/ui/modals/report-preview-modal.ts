@@ -53,8 +53,8 @@ export class ReportPreviewModal extends Modal {
 		this.currentIndex = 0;
 
 		const pageSize = this.pageSizeResolver.resolve(this.project);
-		const pages = paginateHtml(this.project, this.previewHtml);
 		const css = this.previewCss.trim() ? this.previewCss : "/* no export css */";
+		const pages = paginateHtml(this.project, this.previewHtml, { exportCss: css });
 
 		for (const pageHtml of pages) {
 			const slot = this.createPageSlot(pageSize);
