@@ -23,7 +23,7 @@ import {
 	VerticalPositionRelativeFrom,
 	WidthType,
 } from "docx";
-import { TFile, requestUrl, type App, type Component } from "obsidian";
+import { normalizePath, TFile, requestUrl, type App, type Component } from "obsidian";
 import { CALLOUT_TYPE_RGB } from "../domain/callout-palette";
 import {
 	CALLOUT_NEST_MAX_DEPTH,
@@ -57,6 +57,7 @@ import {
 import { rasterizeSvgWithResvg } from "./resvg-rasterizer";
 import { normalizeMermaidSvgForRaster } from "./mermaid-svg-normalize";
 import { highlightCodeToDocxRuns } from "./docx-code-highlight";
+import { findMarkdownInlineLinks } from "./docx-markdown-links";
 import { preprocessDocxFootnotesForExport } from "./docx-footnotes-preprocess";
 import { DocxMathRasterSession } from "./docx-math-raster-session";
 import { docxMathImageTransformationPx } from "./math-export-sizing";
@@ -243,9 +244,73 @@ export class DocxExporter {
 		return id;
 	}
 
+	/**
+	 * Word needs real URIs; vault-relative paths (as after {@link LinkResolver}) become
+	 * `file://` targets like images. `linkSourcePath` resolves relative links (same as
+	 * {@link App.metadataCache.getFirstLinkpathDest}).
+	 */
+	private resolveDocxHyperlinkHref(rawHref: string, linkSourcePath: string): string {
+		const trimmed = rawHref.trim();
+		if (!trimmed) return trimmed;
+		const decoded = decodeUriSafe(trimmed);
+
+		const hashIdx = decoded.indexOf("#");
+		const pathPart = hashIdx >= 0 ? decoded.slice(0, hashIdx) : decoded;
+		const hash = hashIdx >= 0 ? decoded.slice(hashIdx + 1) : "";
+
+		const p = pathPart.trim();
+		if (!p) return trimmed;
+
+		if (/^https?:\/\//i.test(p) || /^mailto:/i.test(p)) {
+			return hash ? `${p}#${hash}` : p;
+		}
+		if (/^file:\/\//i.test(p)) {
+			return hash ? `${p}#${hash}` : p;
+		}
+
+		const qIdx = p.indexOf("?");
+		const pathOnly = qIdx >= 0 ? p.slice(0, qIdx) : p;
+		const query = qIdx >= 0 ? p.slice(qIdx) : "";
+
+		const normalized = normalizePath(pathOnly.replace(/\\/g, "/"));
+		const fromCache = this.app.metadataCache.getFirstLinkpathDest(normalized, linkSourcePath);
+		const file = fromCache ?? this.app.vault.getAbstractFileByPath(normalized);
+		if (file instanceof TFile) {
+			const adapter = this.app.vault.adapter as {
+				getFilePath?: (path: string) => string;
+				getFullPath?: (path: string) => string;
+			};
+			if (typeof adapter.getFilePath === "function") {
+				let url = adapter.getFilePath(file.path);
+				if (hash) url += `#${hash}`;
+				return url + query;
+			}
+			if (typeof adapter.getFullPath === "function") {
+				const full = adapter.getFullPath(file.path);
+				let url = this.absolutePathToFileUrl(full);
+				if (hash) url += `#${hash}`;
+				return url + query;
+			}
+		}
+
+		return trimmed;
+	}
+
+	private absolutePathToFileUrl(absolutePath: string): string {
+		const norm = absolutePath.replace(/\\/g, "/");
+		if (/^[a-zA-Z]:\//.test(norm)) {
+			return "file:///" + norm;
+		}
+		if (norm.startsWith("/")) {
+			return "file://" + norm;
+		}
+		return "file:///" + norm;
+	}
+
 	private async buildDocxFootnotesPayload(
 		tokens: StyleTokens,
 		mathSession: DocxMathRasterSession,
+		linkSourcePath: string,
 	): Promise<Record<string, { children: Paragraph[] }>> {
 		const payload: Record<string, { children: Paragraph[] }> = {};
 		let builtUpTo = 0;
@@ -255,7 +320,7 @@ export class DocxExporter {
 			for (let id = builtUpTo + 1; id <= maxId; id++) {
 				const label = this.docxFootnoteIdToLabel.get(id);
 				const raw = (label !== undefined ? this.docxFootnoteDefs.get(label) : undefined) ?? "";
-				const runs = await this.inlineRunsAsync(raw, tokens, mathSession);
+				const runs = await this.inlineRunsAsync(raw, tokens, mathSession, linkSourcePath);
 				payload[String(id)] = {
 					children: [new Paragraph({ children: runs })],
 				};
@@ -281,8 +346,9 @@ export class DocxExporter {
 			tokens,
 			printRules.headingNumbering,
 			mathSession,
+			sourcePath,
 		);
-		const footnotesPayload = await this.buildDocxFootnotesPayload(tokens, mathSession);
+		const footnotesPayload = await this.buildDocxFootnotesPayload(tokens, mathSession, sourcePath);
 		const margins = this.resolveMargins(tokens);
 		const doc = new Document({
 			numbering: {
@@ -311,6 +377,7 @@ export class DocxExporter {
 		tokens: StyleTokens,
 		headingNumbering: "none" | "h2-h4" | "h1-h6",
 		mathSession: DocxMathRasterSession,
+		linkSourcePath: string,
 	): Promise<DocxBlock[]> {
 		const lines = markdown.split("\n");
 		const output: DocxBlock[] = [];
@@ -442,14 +509,14 @@ export class DocxExporter {
 				continue;
 			}
 
-			const table = await this.tryParseTableAsync(lines, index, tokens, mathSession);
+			const table = await this.tryParseTableAsync(lines, index, tokens, mathSession, linkSourcePath);
 			if (table) {
 				output.push(table.table);
 				index = table.nextIndex;
 				continue;
 			}
 
-			const callout = await this.tryParseCalloutAsync(lines, index, tokens, mathSession);
+			const callout = await this.tryParseCalloutAsync(lines, index, tokens, mathSession, linkSourcePath);
 			if (callout) {
 				output.push(callout.table);
 				index = callout.nextIndex;
@@ -498,7 +565,7 @@ export class DocxExporter {
 				const quoteText = quoteMatch[1] ?? "";
 				output.push(
 					new Paragraph({
-						children: await this.inlineRunsAsync(quoteText, tokens, mathSession),
+						children: await this.inlineRunsAsync(quoteText, tokens, mathSession, linkSourcePath),
 						alignment: this.toAlignment(tokens.blockquoteTextAlign),
 						spacing: {
 							before: this.ptToTwips(tokens.blockquoteMarginY),
@@ -520,7 +587,7 @@ export class DocxExporter {
 				const isOrdered = /^\d+\.$/.test(marker);
 				output.push(
 					new Paragraph({
-						children: await this.inlineRunsAsync(listText, tokens, mathSession),
+						children: await this.inlineRunsAsync(listText, tokens, mathSession, linkSourcePath),
 						alignment: this.toAlignment("left"),
 						numbering: {
 							reference: isOrdered ? "ra-ordered" : "ra-bullet",
@@ -534,7 +601,7 @@ export class DocxExporter {
 
 			output.push(
 				new Paragraph({
-					children: await this.inlineRunsAsync(trimmed, tokens, mathSession),
+					children: await this.inlineRunsAsync(trimmed, tokens, mathSession, linkSourcePath),
 					alignment: this.toAlignment(tokens.paragraphTextAlign),
 					spacing: {
 						before: this.ptToTwips(tokens.paragraphSpacing),
@@ -1058,6 +1125,7 @@ export class DocxExporter {
 		text: string,
 		tokens: StyleTokens,
 		mathSession: DocxMathRasterSession,
+		linkSourcePath: string,
 	): Promise<Array<TextRun | ExternalHyperlink | ImageRun | FootnoteReferenceRun>> {
 		const segs = segmentHighlightSyntax(text);
 		const out: Array<TextRun | ExternalHyperlink | ImageRun | FootnoteReferenceRun> = [];
@@ -1065,7 +1133,17 @@ export class DocxExporter {
 
 		for (const seg of segs) {
 			if (seg.kind === "text") {
-				if (seg.text) out.push(...(await this.inlineRunsPlainAsync(seg.text, tokens, undefined, mathSession)));
+				if (seg.text) {
+					out.push(
+						...(await this.inlineRunsPlainAsync(
+							seg.text,
+							tokens,
+							undefined,
+							mathSession,
+							linkSourcePath,
+						)),
+					);
+				}
 				continue;
 			}
 			let fill = defaultFill;
@@ -1073,13 +1151,16 @@ export class DocxExporter {
 				const css = normalizeHighlightColorToken(seg.colorToken);
 				if (css) fill = highlightCssToDocxFill(css, defaultFill);
 			}
-			out.push(...(await this.inlineRunsPlainAsync(seg.text, tokens, fill, mathSession)));
+			out.push(
+				...(await this.inlineRunsPlainAsync(seg.text, tokens, fill, mathSession, linkSourcePath)),
+			);
 		}
 
 		return out.length ? out : [new TextRun("")];
 	}
 
-	private async inlineRunsPlainAsync(
+	/** Bold, italic, code, strike — not `[label](href)` (handled separately). */
+	private async inlineRunsPlainDecoratorsOnlyAsync(
 		text: string,
 		tokens: StyleTokens,
 		highlightFill: string | undefined,
@@ -1088,7 +1169,7 @@ export class DocxExporter {
 		const runs: Array<TextRun | ExternalHyperlink | ImageRun | FootnoteReferenceRun> = [];
 		const hl =
 			highlightFill !== undefined ? { type: ShadingType.CLEAR, fill: highlightFill } : undefined;
-		const pattern = /(\[[^\]]+\]\(([^)]+)\)|`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|~~[^~]+~~)/g;
+		const pattern = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|~~[^~]+~~)/g;
 		let index = 0;
 		let match = pattern.exec(text);
 		while (match) {
@@ -1104,26 +1185,7 @@ export class DocxExporter {
 				);
 			}
 			const token = match[0] ?? "";
-			if (token.startsWith("[")) {
-				const link = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(token);
-				const label = link?.[1] ?? token;
-				const href = link?.[2] ?? "";
-				runs.push(
-					new ExternalHyperlink({
-						link: href,
-						children: [
-							new TextRun({
-								text: label,
-								color: this.toDocxColor(tokens.linkColor),
-								underline: tokens.linkUnderline ? {} : undefined,
-								font: tokens.fontBody,
-								size: this.ptToHalfPoint(tokens.fontSizeBody),
-								shading: hl,
-							}),
-						],
-					}),
-				);
-			} else if (token.startsWith("**")) {
+			if (token.startsWith("**")) {
 				runs.push(
 					new TextRun({
 						text: token.slice(2, -2),
@@ -1181,6 +1243,68 @@ export class DocxExporter {
 		return runs;
 	}
 
+	private async inlineRunsPlainAsync(
+		text: string,
+		tokens: StyleTokens,
+		highlightFill: string | undefined,
+		mathSession: DocxMathRasterSession,
+		linkSourcePath: string,
+	): Promise<Array<TextRun | ExternalHyperlink | ImageRun | FootnoteReferenceRun>> {
+		const hl =
+			highlightFill !== undefined ? { type: ShadingType.CLEAR, fill: highlightFill } : undefined;
+
+		const linkRanges = findMarkdownInlineLinks(text);
+		if (linkRanges.length === 0) {
+			return this.inlineRunsPlainDecoratorsOnlyAsync(text, tokens, highlightFill, mathSession);
+		}
+
+		const runs: Array<TextRun | ExternalHyperlink | ImageRun | FootnoteReferenceRun> = [];
+		let last = 0;
+		for (const r of linkRanges) {
+			if (r.start > last) {
+				runs.push(
+					...(await this.inlineRunsPlainDecoratorsOnlyAsync(
+						text.slice(last, r.start),
+						tokens,
+						highlightFill,
+						mathSession,
+					)),
+				);
+			}
+			const resolved = this.resolveDocxHyperlinkHref(r.href, linkSourcePath);
+			runs.push(
+				new ExternalHyperlink({
+					link: resolved,
+					children: [
+						new TextRun({
+							text: r.label,
+							color: this.toDocxColor(tokens.linkColor),
+							underline: tokens.linkUnderline ? {} : undefined,
+							font: tokens.fontBody,
+							size: this.ptToHalfPoint(tokens.fontSizeBody),
+							shading: hl,
+						}),
+					],
+				}),
+			);
+			last = r.end;
+		}
+		if (last < text.length) {
+			runs.push(
+				...(await this.inlineRunsPlainDecoratorsOnlyAsync(
+					text.slice(last),
+					tokens,
+					highlightFill,
+					mathSession,
+				)),
+			);
+		}
+		if (runs.length === 0) {
+			return [new TextRun({ text: "", shading: hl })];
+		}
+		return runs;
+	}
+
 	private createCodeBlockParagraph(text: string, tokens: StyleTokens, fenceLang: string): Paragraph {
 		const runs = highlightCodeToDocxRuns(
 			text,
@@ -1218,10 +1342,11 @@ export class DocxExporter {
 		start: number,
 		tokens: StyleTokens,
 		mathSession: DocxMathRasterSession,
+		linkSourcePath: string,
 	): Promise<{ table: Table; nextIndex: number } | null> {
 		const parsed = parseCalloutStartLine(lines[start] ?? "");
 		if (!parsed) return null;
-		return this.buildCalloutTableAsync(lines, start, parsed.depth, tokens, mathSession, 0);
+		return this.buildCalloutTableAsync(lines, start, parsed.depth, tokens, mathSession, 0, linkSourcePath);
 	}
 
 	private async buildCalloutTableAsync(
@@ -1231,6 +1356,7 @@ export class DocxExporter {
 		tokens: StyleTokens,
 		mathSession: DocxMathRasterSession,
 		nestLevel: number,
+		linkSourcePath: string,
 	): Promise<{ table: Table; nextIndex: number } | null> {
 		const headParsed = parseCalloutStartLine(lines[start] ?? "");
 		if (!headParsed || headParsed.depth !== expectedDepth) return null;
@@ -1264,6 +1390,7 @@ export class DocxExporter {
 			tokens,
 			mathSession,
 			nestLevel,
+			linkSourcePath,
 		);
 		const titleAfter =
 			body.blocks.length > 0 ? this.ptToTwips(4) : this.ptToTwips(2);
@@ -1335,6 +1462,7 @@ export class DocxExporter {
 		tokens: StyleTokens,
 		mathSession: DocxMathRasterSession,
 		nestLevel: number,
+		linkSourcePath: string,
 	): Promise<{ blocks: (Paragraph | Table)[]; nextIndex: number }> {
 		const blocks: (Paragraph | Table)[] = [];
 		let idx = startIdx;
@@ -1353,6 +1481,7 @@ export class DocxExporter {
 					tokens,
 					mathSession,
 					nestLevel + 1,
+					linkSourcePath,
 				);
 				if (nested) {
 					blocks.push(nested.table);
@@ -1373,7 +1502,7 @@ export class DocxExporter {
 			} else {
 				blocks.push(
 					new Paragraph({
-						children: await this.inlineRunsAsync(trimmedBody, tokens, mathSession),
+						children: await this.inlineRunsAsync(trimmedBody, tokens, mathSession, linkSourcePath),
 						alignment: this.toAlignment(tokens.paragraphTextAlign),
 						spacing: { before: 0, after: this.ptToTwips(Math.min(tokens.paragraphSpacing, 6)) },
 					}),
@@ -1389,6 +1518,7 @@ export class DocxExporter {
 		start: number,
 		tokens: StyleTokens,
 		mathSession: DocxMathRasterSession,
+		linkSourcePath: string,
 	): Promise<{ table: Table; nextIndex: number } | null> {
 		const header = (lines[start] ?? "").trim();
 		const separator = (lines[start + 1] ?? "").trim();
@@ -1404,7 +1534,7 @@ export class DocxExporter {
 				const cells = this.splitTableRow(row);
 				const tableCells = await Promise.all(
 					cells.map(async (cell, cellIndex) => {
-						const children = await this.inlineRunsAsync(cell, tokens, mathSession);
+						const children = await this.inlineRunsAsync(cell, tokens, mathSession, linkSourcePath);
 						return new TableCell({
 							children: [
 								new Paragraph({
