@@ -3,6 +3,7 @@ import {
 	BorderStyle,
 	Document,
 	ExternalHyperlink,
+	FootnoteReferenceRun,
 	HeadingLevel,
 	HorizontalPositionAlign,
 	HorizontalPositionRelativeFrom,
@@ -56,6 +57,7 @@ import {
 import { rasterizeSvgWithResvg } from "./resvg-rasterizer";
 import { normalizeMermaidSvgForRaster } from "./mermaid-svg-normalize";
 import { highlightCodeToDocxRuns } from "./docx-code-highlight";
+import { preprocessDocxFootnotesForExport } from "./docx-footnotes-preprocess";
 import { DocxMathRasterSession } from "./docx-math-raster-session";
 import { docxMathImageTransformationPx } from "./math-export-sizing";
 
@@ -214,28 +216,79 @@ function calloutBorderHex(accentRgb: string, mixTowardAccent: number): string {
 }
 
 export class DocxExporter {
+	/** Footnote label → body markdown (from definitions + inline `^[...]`). */
+	private docxFootnoteDefs = new Map<string, string>();
+	private docxFootnoteLabelToId = new Map<string, number>();
+	private docxFootnoteIdToLabel = new Map<number, string>();
+	private docxFootnoteNextId = 1;
+
 	constructor(
 		private app: App,
 		private component: Component,
 	) {}
+
+	private resetDocxFootnoteReferenceState(): void {
+		this.docxFootnoteLabelToId.clear();
+		this.docxFootnoteIdToLabel.clear();
+		this.docxFootnoteNextId = 1;
+	}
+
+	/** Assign a sequential Word footnote id on first reference to `label`. */
+	private ensureDocxFootnoteId(label: string): number {
+		const existing = this.docxFootnoteLabelToId.get(label);
+		if (existing !== undefined) return existing;
+		const id = this.docxFootnoteNextId++;
+		this.docxFootnoteLabelToId.set(label, id);
+		this.docxFootnoteIdToLabel.set(id, label);
+		return id;
+	}
+
+	private async buildDocxFootnotesPayload(
+		tokens: StyleTokens,
+		mathSession: DocxMathRasterSession,
+	): Promise<Record<string, { children: Paragraph[] }>> {
+		const payload: Record<string, { children: Paragraph[] }> = {};
+		let builtUpTo = 0;
+		/** Footnote bodies can reference other footnotes; assign new ids while rendering. */
+		while (this.docxFootnoteNextId - 1 > builtUpTo) {
+			const maxId = this.docxFootnoteNextId - 1;
+			for (let id = builtUpTo + 1; id <= maxId; id++) {
+				const label = this.docxFootnoteIdToLabel.get(id);
+				const raw = (label !== undefined ? this.docxFootnoteDefs.get(label) : undefined) ?? "";
+				const runs = await this.inlineRunsAsync(raw, tokens, mathSession);
+				payload[String(id)] = {
+					children: [new Paragraph({ children: runs })],
+				};
+			}
+			builtUpTo = maxId;
+		}
+		return payload;
+	}
 
 	async export(project: ReportProject, markdown: string, outputPath: string): Promise<void> {
 		const tokens = mergeStyleTokens(project.styleTemplate.tokens);
 		const printRules = mergePrintRules(project.styleTemplate.printRules);
 		const sourcePath = getPrimaryMarkdownSourcePath(project);
 		const mathSession = new DocxMathRasterSession(this.app, this.component, sourcePath, tokens);
+		const { lines: footnoteStrippedLines, definitions: footnoteDefs } =
+			preprocessDocxFootnotesForExport(markdown.split("\n"));
+		this.docxFootnoteDefs = footnoteDefs;
+		this.resetDocxFootnoteReferenceState();
+		const markdownForBlocks = footnoteStrippedLines.join("\n");
 		const blocks = await this.markdownToBlocks(
-			markdown,
+			markdownForBlocks,
 			project,
 			tokens,
 			printRules.headingNumbering,
 			mathSession,
 		);
+		const footnotesPayload = await this.buildDocxFootnotesPayload(tokens, mathSession);
 		const margins = this.resolveMargins(tokens);
 		const doc = new Document({
 			numbering: {
 				config: this.buildNumbering(tokens) as unknown as NumberingConfig[],
 			},
+			...(Object.keys(footnotesPayload).length > 0 ? { footnotes: footnotesPayload } : {}),
 			sections: [
 				{
 					properties: {
@@ -881,10 +934,10 @@ export class DocxExporter {
 	}
 
 	/**
-	 * Plain text slice that may contain `$...$` inline math (not `$$`).
+	 * Plain segment with `$...$` inline math only (no `[^refs]`).
 	 * Prefetches unique formulas in parallel (session dedupes + concurrency cap), then stitches runs.
 	 */
-	private async plainSliceWithMathAsync(
+	private async plainSegmentMathAsync(
 		slice: string,
 		tokens: StyleTokens,
 		highlightFill: string | undefined,
@@ -957,13 +1010,57 @@ export class DocxExporter {
 		return runs;
 	}
 
+	/** Plain slice: Markdown `[^label]` footnote refs plus `$...$` math. */
+	private async plainSliceWithMathAsync(
+		slice: string,
+		tokens: StyleTokens,
+		highlightFill: string | undefined,
+		mathSession: DocxMathRasterSession,
+	): Promise<Array<TextRun | ImageRun | FootnoteReferenceRun>> {
+		if (!slice) return [];
+		const re = /\[\^([^\]]+)\]/g;
+		const matches = [...slice.matchAll(re)];
+		if (matches.length === 0) {
+			return this.plainSegmentMathAsync(slice, tokens, highlightFill, mathSession);
+		}
+		const out: Array<TextRun | ImageRun | FootnoteReferenceRun> = [];
+		let last = 0;
+		for (const m of matches) {
+			const start = m.index ?? 0;
+			if (start > last) {
+				out.push(
+					...(await this.plainSegmentMathAsync(
+						slice.slice(last, start),
+						tokens,
+						highlightFill,
+						mathSession,
+					)),
+				);
+			}
+			const id = this.ensureDocxFootnoteId(m[1] ?? "");
+			out.push(new FootnoteReferenceRun(id));
+			last = start + (m[0]?.length ?? 0);
+		}
+		if (last < slice.length) {
+			out.push(
+				...(await this.plainSegmentMathAsync(
+					slice.slice(last),
+					tokens,
+					highlightFill,
+					mathSession,
+				)),
+			);
+		}
+		return out;
+	}
+
 	private async inlineRunsAsync(
 		text: string,
 		tokens: StyleTokens,
 		mathSession: DocxMathRasterSession,
-	): Promise<Array<TextRun | ExternalHyperlink | ImageRun>> {
+	): Promise<Array<TextRun | ExternalHyperlink | ImageRun | FootnoteReferenceRun>> {
 		const segs = segmentHighlightSyntax(text);
-		const out: Array<TextRun | ExternalHyperlink | ImageRun> = [];
+		const out: Array<TextRun | ExternalHyperlink | ImageRun | FootnoteReferenceRun> = [];
 		const defaultFill = defaultHighlightCssToDocxFill(tokens.highlightDefaultBackground);
 
 		for (const seg of segs) {
@@ -987,8 +1084,8 @@ export class DocxExporter {
 		tokens: StyleTokens,
 		highlightFill: string | undefined,
 		mathSession: DocxMathRasterSession,
-	): Promise<Array<TextRun | ExternalHyperlink | ImageRun>> {
-		const runs: Array<TextRun | ExternalHyperlink | ImageRun> = [];
+	): Promise<Array<TextRun | ExternalHyperlink | ImageRun | FootnoteReferenceRun>> {
+		const runs: Array<TextRun | ExternalHyperlink | ImageRun | FootnoteReferenceRun> = [];
 		const hl =
 			highlightFill !== undefined ? { type: ShadingType.CLEAR, fill: highlightFill } : undefined;
 		const pattern = /(\[[^\]]+\]\(([^)]+)\)|`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|~~[^~]+~~)/g;
