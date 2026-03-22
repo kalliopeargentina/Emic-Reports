@@ -106,13 +106,20 @@
 
 .ra-node-row {
 	display: grid;
-	grid-template-columns: 20px 1fr auto auto;
+	grid-template-columns: 20px 22px 1fr auto auto;
 	align-items: center;
 	gap: 8px;
 	padding: 6px 8px;
 	border: 1px solid var(--background-modifier-border);
 	border-radius: 6px;
 	background: var(--background-primary);
+}
+
+.ra-node-kind-cell {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: var(--text-muted);
 }
 
 .ra-node-row.is-dragging {
@@ -160,6 +167,83 @@
 	color: var(--text-muted);
 	text-align: center;
 	font-size: var(--font-ui-smaller);
+}
+
+/* Table of contents (after cover in preview / PDF) — layout mirrored in export CSS for iframes */
+.ra-toc {
+	margin: 1.5em 0;
+	padding: 0 0 1em;
+	border-bottom: 1px solid var(--background-modifier-border, #ccc);
+	break-after: page;
+}
+
+.ra-toc-title {
+	font-size: 1.25em;
+	margin: 0 0 0.75em;
+}
+
+.ra-toc-entries {
+	margin: 0;
+	padding: 0;
+}
+
+.ra-toc-entry {
+	display: flex;
+	align-items: baseline;
+	gap: 0.45em;
+	margin: 0.28em 0;
+	line-height: 1.35;
+}
+
+.ra-toc-text {
+	flex: 0 1 auto;
+	min-width: 0;
+	max-width: 78%;
+}
+
+.ra-toc-link {
+	text-decoration: none;
+	color: inherit;
+}
+
+.ra-toc-leader {
+	flex: 1 1 auto;
+	min-width: 1.25em;
+	border-bottom: 1px dotted currentColor;
+	opacity: 0.42;
+	height: 0;
+	align-self: flex-end;
+	margin-bottom: 0.22em;
+}
+
+.ra-toc-page {
+	flex: 0 0 2.75em;
+	text-align: right;
+	font-variant-numeric: tabular-nums;
+}
+
+.ra-toc-level-1 .ra-toc-text {
+	padding-left: 0;
+}
+
+.ra-toc-level-2 .ra-toc-text {
+	padding-left: 0.85rem;
+}
+
+.ra-toc-level-3 .ra-toc-text {
+	padding-left: 1.7rem;
+}
+
+.ra-toc-level-4 .ra-toc-text {
+	padding-left: 2.55rem;
+}
+
+.ra-toc-level-5 .ra-toc-text {
+	padding-left: 3.4rem;
+}
+
+.ra-toc-level-6 .ra-toc-text {
+	padding-left: 4.25rem;
 }
 
 .ra-drop-zone.is-drag-over {

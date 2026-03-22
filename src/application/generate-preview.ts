@@ -5,6 +5,7 @@ import type { HtmlRenderer } from "../infrastructure/html-renderer";
 import type { CssTemplateEngine } from "../infrastructure/css-template-engine";
 import type { AssetLinkTarget, AssetResolver } from "../infrastructure/asset-resolver";
 import { applyExportMarkdownTransforms } from "../infrastructure/export-markdown-transforms";
+import { buildTableOfContentsHtml, ensureHeadingIds } from "../infrastructure/toc-html";
 
 export interface PreviewBundle {
 	markdown: string;
@@ -34,7 +35,13 @@ export async function generatePreview(
 	const exportMarkdown = applyExportMarkdownTransforms(resolvedMarkdown);
 	/** Inline `#tags` stay plain text in HTML/PDF (no faux links). DOCX may still style tags separately. */
 	let html = await renderer.render(project, exportMarkdown);
-	html = prependCoverHtml(project, html);
+	html = ensureHeadingIds(html);
+	let innerHtml = html;
+	if (project.exportOptions.includeToc) {
+		const toc = buildTableOfContentsHtml(html);
+		innerHtml = toc ? `${toc}\n<hr class="ra-page-break">\n${html}` : html;
+	}
+	html = prependCoverHtml(project, innerHtml);
 	const assetTarget = options?.assetLinkTarget ?? "obsidian";
 	html = await assetResolver.resolveHtmlAssets(project, html, assetTarget);
 	const css = cssTemplateEngine.build(project);

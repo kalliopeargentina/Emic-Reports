@@ -6,9 +6,24 @@ import {
 	type StyleTemplate,
 } from "./style-template";
 
+export type ReportNodeKind = "note" | "folder";
+
 export interface ReportNode {
 	id: string;
+	/** Defaults to `"note"` when missing (saved projects). */
+	kind?: ReportNodeKind;
+	/**
+	 * For `note`: path to the Markdown file in the vault.
+	 * For `folder`: leave empty; use `folderPath` instead.
+	 */
 	notePath: string;
+	/** Required when `kind === "folder"` — vault path to the folder. */
+	folderPath?: string;
+	/**
+	 * For folder nodes: ATX level of the root folder title (`1` = `#`, `2` = `##`, …).
+	 * Subfolders use consecutive deeper levels. Default `1`.
+	 */
+	folderHeadingBase?: number;
 	titleOverride?: string;
 	order: number;
 	include: boolean;
@@ -42,12 +57,32 @@ export interface ReportProject {
 	exportOptions: ExportProfile;
 }
 
-/** First included note path — used as `sourcePath` for MarkdownRenderer so plugin code blocks resolve. */
-export function getPrimaryMarkdownSourcePath(project: ReportProject): string {
-	const ordered = project.nodes
-		.filter((n) => n.include)
-		.sort((a, b) => a.order - b.order);
-	return ordered[0]?.notePath ?? "";
+function nodeKind(node: ReportNode): ReportNodeKind {
+	return node.kind ?? "note";
+}
+
+/** Normalize nodes loaded from disk (older projects, hand-edited JSON). */
+export function normalizeLoadedProject(project: ReportProject): ReportProject {
+	return {
+		...project,
+		nodes: project.nodes.map((n) => {
+			const kind = nodeKind(n);
+			if (kind === "folder") {
+				const fp = (n.folderPath ?? "").trim() || (n.notePath ?? "").trim();
+				return {
+					...n,
+					kind: "folder" as const,
+					folderPath: fp,
+					notePath: "",
+				};
+			}
+			return {
+				...n,
+				kind: "note" as const,
+				notePath: n.notePath ?? "",
+			};
+		}),
+	};
 }
 
 export function createEmptyProject(name: string): ReportProject {
@@ -83,7 +118,14 @@ export function validateProject(project: ReportProject): string[] {
 	const errors: string[] = [];
 
 	if (!project.name.trim()) errors.push("Project name is required.");
-	if (project.nodes.some((n) => !n.notePath.trim())) errors.push("Each node must have a note path.");
+	for (const n of project.nodes) {
+		if (nodeKind(n) === "note" && !n.notePath.trim()) {
+			errors.push("Each note entry must have a file path.");
+		}
+		if (nodeKind(n) === "folder" && !(n.folderPath ?? "").trim()) {
+			errors.push("Each folder entry must have a folder path.");
+		}
+	}
 	if (project.coverEnabled && !project.coverConfig.title.trim()) {
 		errors.push("Cover title is required when cover is enabled.");
 	}

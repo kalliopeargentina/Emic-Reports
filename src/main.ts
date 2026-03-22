@@ -2,7 +2,8 @@ import { Notice, Plugin, type WorkspaceLeaf } from "obsidian";
 import { createProject } from "./application/create-project";
 import { exportReportDocx } from "./application/export-report-docx";
 import { exportReportPdf } from "./application/export-report-pdf";
-import type { ReportProject } from "./domain/report-project";
+import { validateProject, type ReportProject } from "./domain/report-project";
+import { validateProjectVault } from "./application/validate-project-vault";
 import type { StylePreviewSnapshotSource } from "./domain/style-preview-snapshot";
 import { AssetResolver } from "./infrastructure/asset-resolver";
 import { CssTemplateEngine } from "./infrastructure/css-template-engine";
@@ -185,6 +186,11 @@ export default class ReportArchitectPlugin extends Plugin {
 	}
 
 	async exportProject(project: ReportProject): Promise<void> {
+		const validation = [...validateProject(project), ...validateProjectVault(project, this.app)];
+		if (validation.length) {
+			new Notice(validation[0] ?? "Cannot export project.");
+			return;
+		}
 		const folder = this.settings.defaultOutputFolder.trim() || "Emic report architect";
 		await this.ensureVaultFolder(folder);
 		const safeName = project.name.replace(/[\\/:*?"<>|]/g, "-");

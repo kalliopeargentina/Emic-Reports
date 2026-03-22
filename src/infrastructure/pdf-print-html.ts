@@ -1,6 +1,7 @@
 import type { ReportProject } from "../domain/report-project";
 import { paginateHtml } from "./html-paginator";
 import { buildPrintPageLayoutCss } from "./print-layout-css";
+import { applyTocPageNumbersToPaginatedSheets } from "./toc-html";
 
 /** @public Re-export for callers that already imported from this module. */
 export { buildPrintPageLayoutCss } from "./print-layout-css";
@@ -48,7 +49,8 @@ export function buildIsolatedPreviewPageDocument(
  * Shared with {@link PdfExporterElectron} and PDF smoke tests so tests exercise real output shape.
  */
 export function buildPrintableHtmlDocument(project: ReportProject, bundle: HtmlPreviewBundle): string {
-	const pages = paginateHtml(project, bundle.html, { exportCss: bundle.css });
+	const rawPages = paginateHtml(project, bundle.html, { exportCss: bundle.css });
+	const pages = applyTocPageNumbersToPaginatedSheets(rawPages);
 	const layoutCss = buildPrintPageLayoutCss(project);
 	return `<!DOCTYPE html>
 <html>

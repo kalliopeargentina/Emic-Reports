@@ -403,6 +403,62 @@ ${calloutCss}
 	font-size: ${t.fontSizeBody}pt;
 }
 
+.ra-toc {
+	margin: 1.5em 0;
+	padding: 0 0 1em;
+	border-bottom: 1px solid var(--ra-text);
+	opacity: 0.85;
+}
+.ra-toc-title {
+	font-size: ${t.h2Size}pt;
+	margin: 0 0 0.75em;
+	font-family: var(--ra-font-heading);
+}
+.ra-toc-entries {
+	margin: 0;
+	padding: 0;
+}
+.ra-toc-entry {
+	display: flex;
+	align-items: baseline;
+	gap: 0.45em;
+	font-size: ${t.fontSizeBody}pt;
+	margin: 0.28em 0;
+	line-height: 1.35;
+}
+.ra-toc-text {
+	flex: 0 1 auto;
+	min-width: 0;
+	max-width: 78%;
+}
+.ra-toc-link {
+	text-decoration: none;
+	color: inherit;
+}
+.ra-toc-link:hover {
+	text-decoration: underline;
+}
+.ra-toc-leader {
+	flex: 1 1 auto;
+	min-width: 1.25em;
+	border-bottom: 1px dotted currentColor;
+	opacity: 0.42;
+	height: 0;
+	align-self: flex-end;
+	margin-bottom: 0.22em;
+}
+.ra-toc-page {
+	flex: 0 0 2.75em;
+	text-align: right;
+	font-variant-numeric: tabular-nums;
+}
+.ra-toc-level-1 .ra-toc-text { padding-left: 0; }
+.ra-toc-level-2 .ra-toc-text { padding-left: 0.85rem; }
+.ra-toc-level-3 .ra-toc-text { padding-left: 1.7rem; }
+.ra-toc-level-4 .ra-toc-text { padding-left: 2.55rem; }
+.ra-toc-level-5 .ra-toc-text { padding-left: 3.4rem; }
+.ra-toc-level-6 .ra-toc-text { padding-left: 4.25rem; }
+
 ${numberingCss}
 ${backgroundCss}
 
@@ -415,6 +471,9 @@ ${backgroundCss}
 		color: var(--ra-text) !important;
 	}
 	.ra-page-break {
+		page-break-after: always;
+	}
+	.ra-toc {
 		page-break-after: always;
 	}
 }

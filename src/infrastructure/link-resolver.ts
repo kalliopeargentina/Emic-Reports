@@ -1,5 +1,6 @@
 import { TFile, type App } from "obsidian";
-import { getPrimaryMarkdownSourcePath, type ReportProject } from "../domain/report-project";
+import type { ReportProject } from "../domain/report-project";
+import { getPrimaryMarkdownSourcePath } from "./primary-source-path";
 import { mergeStyleTokens } from "../domain/style-template";
 import { expandHighlightsInMarkdown } from "./highlight-export";
 import { slugifyHeadingForAnchor } from "./markdown-heading-slug";
@@ -229,7 +230,7 @@ export class LinkResolver {
 			? withEmbeds
 			: expandHighlightsInMarkdown(withEmbeds, tokens.highlightDefaultBackground);
 
-		const sourcePath = getPrimaryMarkdownSourcePath(_project);
+		const sourcePath = getPrimaryMarkdownSourcePath(_project, this.app);
 
 		const withWikiLinks = replaceWikiLinksOutsideCode(afterHighlights, (linkBody: string) => {
 			const { pathPart, headingRef, blockId, alias } = parseWikiLinkForReplacer(linkBody);

@@ -5,6 +5,11 @@ import type { ReportNode } from "../../domain/report-project";
 function reportNodeListLabel(node: ReportNode): string {
 	const o = node.titleOverride?.trim();
 	if (o) return o;
+	if ((node.kind ?? "note") === "folder") {
+		const fp = (node.folderPath ?? "").trim();
+		const last = fp.split("/").filter(Boolean).pop() ?? fp;
+		return last || "Folder";
+	}
 	const last = node.notePath.split("/").filter(Boolean).pop() ?? node.notePath;
 	return last.replace(/\.md$/i, "");
 }
@@ -31,6 +36,11 @@ export class ReportNodeTree {
 
 				const dragHandle = row.createSpan({ cls: "ra-node-handle" });
 				setIcon(dragHandle, "grip-vertical");
+				const kindCell = row.createSpan({ cls: "ra-node-kind-cell" });
+				if ((node.kind ?? "note") === "folder") {
+					const ic = kindCell.createSpan({ cls: "ra-node-kind-icon" });
+					setIcon(ic, "folder");
+				}
 				row.createSpan({ text: reportNodeListLabel(node), cls: "ra-node-title" });
 
 				const includeToggle = row.createEl("input", { type: "checkbox" });
@@ -42,10 +52,10 @@ export class ReportNodeTree {
 
 				const removeBtn = row.createEl("button", {
 					cls: "ra-node-remove",
-					attr: { type: "button", "aria-label": "Remove note" },
+					attr: { type: "button", "aria-label": "Remove item" },
 				});
 				removeBtn.setText("×");
-				removeBtn.setAttribute("title", "Remove note");
+				removeBtn.setAttribute("title", "Remove item");
 				removeBtn.addEventListener("click", () => {
 					const remaining = this.nodes
 						.filter((n) => n.id !== node.id)

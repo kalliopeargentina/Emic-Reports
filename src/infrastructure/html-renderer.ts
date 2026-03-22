@@ -1,6 +1,7 @@
 import { Component, MarkdownRenderer, type App } from "obsidian";
 import { mergeStyleTokens } from "../domain/style-template";
-import { getPrimaryMarkdownSourcePath, type ReportProject } from "../domain/report-project";
+import type { ReportProject } from "../domain/report-project";
+import { getPrimaryMarkdownSourcePath } from "./primary-source-path";
 import {
 	CHART_CANVAS_WAIT_MAX_MS,
 	revealOffscreenHostForCanvasReadback,
@@ -41,7 +42,7 @@ export class HtmlRenderer {
 	) {}
 
 	async render(project: ReportProject, markdown: string): Promise<string> {
-		const sourcePath = getPrimaryMarkdownSourcePath(project);
+		const sourcePath = getPrimaryMarkdownSourcePath(project, this.app);
 		const host = document.createElement("div");
 		host.addClass("ra-preview-root");
 		/** Match Reading/Preview so Obsidian + plugin processors (Mermaid, charts) apply */

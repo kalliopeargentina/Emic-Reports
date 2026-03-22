@@ -1,5 +1,6 @@
 import { MarkdownRenderer, type Component, type App } from "obsidian";
-import { getPrimaryMarkdownSourcePath, type ReportProject } from "../../domain/report-project";
+import type { ReportProject } from "../../domain/report-project";
+import { getPrimaryMarkdownSourcePath } from "../../infrastructure/primary-source-path";
 import { waitForDomStable } from "../../infrastructure/dom-settle";
 import { markdownHasPluginDiagramFence } from "../../infrastructure/plugin-diagram-render";
 import { waitForSvgOrCanvasDeep } from "../../infrastructure/shadow-dom";
@@ -36,7 +37,7 @@ export class LivePreviewView {
 		const body = frame.createDiv({
 			cls: "ra-render-frame markdown-preview-view markdown-reading-view markdown-rendered",
 		});
-		const sourcePath = getPrimaryMarkdownSourcePath(project);
+		const sourcePath = getPrimaryMarkdownSourcePath(project, this.app);
 		await MarkdownRenderer.render(this.app, markdown, body, sourcePath, this.component);
 		await waitForDomStable(body, { stableMs: 400, maxMs: 30000 });
 		if (markdownHasPluginDiagramFence(markdown)) {

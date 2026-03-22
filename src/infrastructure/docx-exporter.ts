@@ -33,7 +33,8 @@ import {
 	parseCalloutStartLine,
 	stripQuoteLevels,
 } from "./callout-markdown";
-import { getPrimaryMarkdownSourcePath, type ReportProject } from "../domain/report-project";
+import type { ReportProject } from "../domain/report-project";
+import { getPrimaryMarkdownSourcePath } from "./primary-source-path";
 import { mergePrintRules, mergeStyleTokens, type StyleTokens } from "../domain/style-template";
 import {
 	defaultHighlightCssToDocxFill,
@@ -376,7 +377,7 @@ export class DocxExporter {
 	async export(project: ReportProject, markdown: string, outputPath: string): Promise<void> {
 		const tokens = mergeStyleTokens(project.styleTemplate.tokens);
 		const printRules = mergePrintRules(project.styleTemplate.printRules);
-		const sourcePath = getPrimaryMarkdownSourcePath(project);
+		const sourcePath = getPrimaryMarkdownSourcePath(project, this.app);
 		const mathSession = new DocxMathRasterSession(this.app, this.component, sourcePath, tokens);
 		const { lines: footnoteStrippedLines, definitions: footnoteDefs } =
 			preprocessDocxFootnotesForExport(markdown.split("\n"));
@@ -703,7 +704,7 @@ export class DocxExporter {
 		tokens: StyleTokens,
 		logIntro: string,
 	): Promise<Paragraph | null> {
-		const sourcePath = getPrimaryMarkdownSourcePath(project);
+		const sourcePath = getPrimaryMarkdownSourcePath(project, this.app);
 		try {
 			// eslint-disable-next-line no-console
 			console.info(logIntro, codeFenceLang);
@@ -751,7 +752,7 @@ export class DocxExporter {
 		tokens: StyleTokens,
 	): Promise<Paragraph> {
 		const body = codeLines.join("\n");
-		const sourcePath = getPrimaryMarkdownSourcePath(project);
+		const sourcePath = getPrimaryMarkdownSourcePath(project, this.app);
 		if (isPluginDiagramFenceLanguage(codeFenceLang)) {
 			const isMermaid = codeFenceLang.trim().toLowerCase() === "mermaid";
 			if (isEmicChartsCanvasFenceLanguage(codeFenceLang)) {

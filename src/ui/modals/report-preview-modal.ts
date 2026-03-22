@@ -1,6 +1,7 @@
 import { Modal, type App } from "obsidian";
 import type { ReportProject } from "../../domain/report-project";
 import { paginateHtml } from "../../infrastructure/html-paginator";
+import { applyTocPageNumbersToPaginatedSheets } from "../../infrastructure/toc-html";
 import { buildIsolatedPreviewPageDocument } from "../../infrastructure/pdf-print-html";
 import { PageSizeResolver } from "../../infrastructure/page-size-resolver";
 
@@ -54,7 +55,8 @@ export class ReportPreviewModal extends Modal {
 
 		const pageSize = this.pageSizeResolver.resolve(this.project);
 		const css = this.previewCss.trim() ? this.previewCss : "/* no export css */";
-		const pages = paginateHtml(this.project, this.previewHtml, { exportCss: css });
+		const rawPages = paginateHtml(this.project, this.previewHtml, { exportCss: css });
+		const pages = applyTocPageNumbersToPaginatedSheets(rawPages);
 
 		for (const pageHtml of pages) {
 			const slot = this.createPageSlot(pageSize);

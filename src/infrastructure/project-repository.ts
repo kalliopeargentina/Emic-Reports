@@ -1,5 +1,5 @@
 import type { App } from "obsidian";
-import type { ReportProject } from "../domain/report-project";
+import { normalizeLoadedProject, type ReportProject } from "../domain/report-project";
 
 export interface ProjectRepository {
 	save(project: ReportProject): Promise<void>;
@@ -21,7 +21,7 @@ export class VaultProjectRepository implements ProjectRepository {
 		const path = this.filePath(id);
 		if (!(await this.app.vault.adapter.exists(path))) return null;
 		const content = await this.app.vault.adapter.read(path);
-		return JSON.parse(content) as ReportProject;
+		return normalizeLoadedProject(JSON.parse(content) as ReportProject);
 	}
 
 	async list(): Promise<ReportProject[]> {
@@ -30,7 +30,9 @@ export class VaultProjectRepository implements ProjectRepository {
 		const listing = await this.app.vault.adapter.list(dataRoot);
 		const projectFiles = listing.files.filter((filePath) => filePath.endsWith(".json"));
 		const projects = await Promise.all(
-			projectFiles.map(async (path) => JSON.parse(await this.app.vault.adapter.read(path)) as ReportProject),
+			projectFiles.map(async (path) =>
+				normalizeLoadedProject(JSON.parse(await this.app.vault.adapter.read(path)) as ReportProject),
+			),
 		);
 		return projects.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 	}

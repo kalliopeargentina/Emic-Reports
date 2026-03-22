@@ -1,6 +1,7 @@
 import { ItemView, Notice, Setting, TFile, WorkspaceLeaf } from "obsidian";
 import { generatePreview } from "../../application/generate-preview";
 import { updateProjectStructure } from "../../application/update-project-structure";
+import { validateProjectVault } from "../../application/validate-project-vault";
 import type ReportArchitectPlugin from "../../main";
 import type { ReportNode, ReportProject } from "../../domain/report-project";
 import { validateProject } from "../../domain/report-project";
@@ -8,10 +9,17 @@ import { ReportNodeTree } from "../components/report-node-tree";
 import { renderExportFormatSelector } from "../components/export-format-selector";
 import { renderPageSizePicker } from "../components/page-size-picker";
 import { CoverConfigModal } from "../modals/cover-config-modal";
+import { FolderPickerModal } from "../modals/folder-picker-modal";
 import { ReportPreviewModal } from "../modals/report-preview-modal";
 import { cloneJson } from "../../utils/json-clone";
 
 export const REPORT_ARCHITECT_VIEW_TYPE = "report-architect-view";
+
+function nodeStructureKey(node: ReportNode): string {
+	return (node.kind ?? "note") === "folder"
+		? `folder:${(node.folderPath ?? "").trim()}`
+		: `note:${node.notePath.trim()}`;
+}
 
 export class ReportArchitectView extends ItemView {
 	constructor(
@@ -128,6 +136,19 @@ export class ReportArchitectView extends ItemView {
 			);
 
 		new Setting(controls)
+			.setName("Table of contents")
+			.setDesc("Insert a linked outline after the cover page (preview and PDF).")
+			.addToggle((toggle) =>
+				toggle.setValue(Boolean(project.exportOptions.includeToc)).onChange((value) => {
+					void (async () => {
+						project.exportOptions.includeToc = value;
+						project.updatedAt = new Date().toISOString();
+						await this.plugin.projectRepository.save(project);
+					})();
+				}),
+			);
+
+		new Setting(controls)
 			.setName("Enable cover page")
 			.addToggle((toggle) =>
 				toggle.setValue(project.coverEnabled).onChange((value) => {
@@ -151,31 +172,67 @@ export class ReportArchitectView extends ItemView {
 
 		const nodePanel = container.createDiv({ cls: "ra-node-panel" });
 		nodePanel.createEl("h3", { text: "Report structure" });
-		new Setting(nodePanel).addButton((btn) =>
-			btn.setButtonText("Add active note").setCta().onClick(async () => {
-				const activeFile = this.app.workspace.getActiveFile();
-				if (!(activeFile instanceof TFile)) {
-					new Notice("Open a note first.");
-					return;
-				}
-				const nextNode: ReportNode = {
-					id: globalThis.crypto?.randomUUID?.() ?? `node-${Date.now()}`,
-					notePath: activeFile.path,
-					order: project.nodes.length + 1,
-					include: true,
-					pageBreakBefore: false,
-					pageBreakAfter: false,
-					indentLevel: 0,
-					headingOffset: 0,
-					excludeFromToc: false,
-					assetPolicy: "linked",
-				};
-				project.nodes.push(nextNode);
-				project.updatedAt = new Date().toISOString();
-				await this.plugin.projectRepository.save(project);
-				await this.render();
-			}),
-		);
+		new Setting(nodePanel)
+			.addButton((btn) =>
+				btn.setButtonText("Add active note").setCta().onClick(async () => {
+					const activeFile = this.app.workspace.getActiveFile();
+					if (!(activeFile instanceof TFile)) {
+						new Notice("Open a note first.");
+						return;
+					}
+					const key = `note:${activeFile.path}`;
+					if (project.nodes.some((n) => nodeStructureKey(n) === key)) {
+						new Notice("That note is already in the report.");
+						return;
+					}
+					const nextNode: ReportNode = {
+						id: globalThis.crypto?.randomUUID?.() ?? `node-${Date.now()}`,
+						kind: "note",
+						notePath: activeFile.path,
+						order: project.nodes.length + 1,
+						include: true,
+						pageBreakBefore: false,
+						pageBreakAfter: false,
+						indentLevel: 0,
+						headingOffset: 0,
+						excludeFromToc: false,
+						assetPolicy: "linked",
+					};
+					project.nodes.push(nextNode);
+					project.updatedAt = new Date().toISOString();
+					await this.plugin.projectRepository.save(project);
+					await this.render();
+				}),
+			)
+			.addButton((btn) =>
+				btn.setButtonText("Add folder").onClick(() => {
+					new FolderPickerModal(this.app, async (folder) => {
+						const key = `folder:${folder.path}`;
+						if (project.nodes.some((n) => nodeStructureKey(n) === key)) {
+							new Notice("That folder is already in the report.");
+							return;
+						}
+						const nextNode: ReportNode = {
+							id: globalThis.crypto?.randomUUID?.() ?? `node-${Date.now()}`,
+							kind: "folder",
+							folderPath: folder.path,
+							notePath: "",
+							order: project.nodes.length + 1,
+							include: true,
+							pageBreakBefore: false,
+							pageBreakAfter: false,
+							indentLevel: 0,
+							headingOffset: 0,
+							excludeFromToc: false,
+							assetPolicy: "linked",
+						};
+						project.nodes.push(nextNode);
+						project.updatedAt = new Date().toISOString();
+						await this.plugin.projectRepository.save(project);
+						await this.render();
+					}).open();
+				}),
+			);
 
 		const dropZone = nodePanel.createDiv({ cls: "ra-drop-zone" });
 		dropZone.setText("Drag and drop Markdown notes here.");
@@ -209,7 +266,7 @@ export class ReportArchitectView extends ItemView {
 		new Setting(actionPanel)
 			.addButton((btn) =>
 				btn.setButtonText("Preview").setCta().onClick(async () => {
-					const errors = validateProject(project);
+					const errors = [...validateProject(project), ...validateProjectVault(project, this.app)];
 					if (errors.length) {
 						new Notice(errors[0] ?? "Project validation failed.");
 						return;
@@ -242,8 +299,8 @@ export class ReportArchitectView extends ItemView {
 			return;
 		}
 
-		const existing = new Set(project.nodes.map((node) => node.notePath));
-		const uniquePaths = droppedPaths.filter((path) => !existing.has(path));
+		const existing = new Set(project.nodes.map((node) => nodeStructureKey(node)));
+		const uniquePaths = droppedPaths.filter((path) => !existing.has(`note:${path}`));
 		if (uniquePaths.length === 0) {
 			new Notice("All dropped notes are already in the report.");
 			return;
@@ -256,6 +313,7 @@ export class ReportArchitectView extends ItemView {
 			order += 1;
 			const nextNode: ReportNode = {
 				id: globalThis.crypto?.randomUUID?.() ?? `node-${Date.now()}-${order}`,
+				kind: "note",
 				notePath: file.path,
 				order,
 				include: true,
