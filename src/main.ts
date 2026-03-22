@@ -1,8 +1,9 @@
-import { Notice, Plugin } from "obsidian";
+import { Notice, Plugin, type WorkspaceLeaf } from "obsidian";
 import { createProject } from "./application/create-project";
 import { exportReportDocx } from "./application/export-report-docx";
 import { exportReportPdf } from "./application/export-report-pdf";
 import type { ReportProject } from "./domain/report-project";
+import type { StylePreviewSnapshotSource } from "./domain/style-preview-snapshot";
 import { AssetResolver } from "./infrastructure/asset-resolver";
 import { CssTemplateEngine } from "./infrastructure/css-template-engine";
 import { DocxExporter } from "./infrastructure/docx-exporter";
@@ -24,6 +25,10 @@ import {
 	TEMPLATE_EDITOR_VIEW_TYPE,
 	TemplateEditorView,
 } from "./ui/views/template-editor-view";
+import {
+	STYLE_PREVIEW_VIEW_TYPE,
+	StylePreviewView,
+} from "./ui/views/style-preview-view";
 
 export default class ReportArchitectPlugin extends Plugin {
 	settings: ReportArchitectSettings;
@@ -36,6 +41,8 @@ export default class ReportArchitectPlugin extends Plugin {
 	cssTemplateEngine: CssTemplateEngine;
 	pdfExporter: PdfExporterElectron;
 	docxExporter: DocxExporter;
+	/** Set while the style template editor leaf is open; used by the style preview view. */
+	stylePreviewSnapshotSource: StylePreviewSnapshotSource | null = null;
 	private activeProjectId: string | null = null;
 
 	async onload(): Promise<void> {
@@ -59,6 +66,7 @@ export default class ReportArchitectPlugin extends Plugin {
 			TEMPLATE_EDITOR_VIEW_TYPE,
 			(leaf) => new TemplateEditorView(leaf, this),
 		);
+		this.registerView(STYLE_PREVIEW_VIEW_TYPE, (leaf) => new StylePreviewView(leaf, this));
 
 		this.addRibbonIcon("file-output", "Open report composer", () => {
 			void this.activateComposerView();
@@ -76,6 +84,11 @@ export default class ReportArchitectPlugin extends Plugin {
 			id: "open-style-template-editor",
 			name: "Open style template editor",
 			callback: () => void this.activateTemplateEditorView(),
+		});
+		this.addCommand({
+			id: "open-style-preview",
+			name: "Open style preview",
+			callback: () => void this.activateStylePreviewView(),
 		});
 
 		this.addCommand({
@@ -103,6 +116,41 @@ export default class ReportArchitectPlugin extends Plugin {
 
 	async saveSettings(): Promise<void> {
 		await this.saveData(this.settings);
+	}
+
+	/** Whether any style preview leaf is open. */
+	stylePreviewIsOpen(): boolean {
+		return this.app.workspace.getLeavesOfType(STYLE_PREVIEW_VIEW_TYPE).length > 0;
+	}
+
+	/** Open style preview in a horizontal split next to the given leaf (usually the template editor). */
+	async openStylePreviewBeside(anchorLeaf: WorkspaceLeaf): Promise<void> {
+		const { workspace } = this.app;
+		void workspace.setActiveLeaf(anchorLeaf, { focus: true });
+		const splitLeaf = workspace.getLeaf("split", "horizontal");
+		await splitLeaf.setViewState({
+			type: STYLE_PREVIEW_VIEW_TYPE,
+			active: true,
+		});
+		void workspace.revealLeaf(splitLeaf);
+		if (splitLeaf.view instanceof StylePreviewView) {
+			splitLeaf.view.requestRefresh();
+		}
+	}
+
+	/** Close all style preview leaves. */
+	closeStylePreview(): void {
+		this.app.workspace.detachLeavesOfType(STYLE_PREVIEW_VIEW_TYPE);
+	}
+
+	/** Toggle style preview split from the anchor leaf; returns whether preview is open after the action. */
+	async toggleStylePreviewBeside(anchorLeaf: WorkspaceLeaf): Promise<boolean> {
+		if (this.stylePreviewIsOpen()) {
+			this.closeStylePreview();
+			return false;
+		}
+		await this.openStylePreviewBeside(anchorLeaf);
+		return true;
 	}
 
 	async ensureActiveProject(): Promise<ReportProject> {
@@ -201,18 +249,48 @@ export default class ReportArchitectPlugin extends Plugin {
 
 	private async activateTemplateEditorView(): Promise<void> {
 		const { workspace } = this.app;
-		let leaf = workspace.getLeavesOfType(TEMPLATE_EDITOR_VIEW_TYPE)[0] ?? null;
-		if (!leaf) {
-			leaf = workspace.getRightLeaf(false);
-			if (!leaf) {
+		let tplLeaf = workspace.getLeavesOfType(TEMPLATE_EDITOR_VIEW_TYPE)[0] ?? null;
+		if (!tplLeaf) {
+			tplLeaf = workspace.getRightLeaf(false);
+			if (!tplLeaf) {
 				new Notice("Unable to open style template editor.");
 				return;
 			}
-			await leaf.setViewState({
+			await tplLeaf.setViewState({
 				type: TEMPLATE_EDITOR_VIEW_TYPE,
 				active: true,
 			});
 		}
+		void workspace.revealLeaf(tplLeaf);
+
+		if (!this.stylePreviewIsOpen()) {
+			await this.openStylePreviewBeside(tplLeaf);
+		} else {
+			const previewLeaf = workspace.getLeavesOfType(STYLE_PREVIEW_VIEW_TYPE)[0]!;
+			void workspace.revealLeaf(previewLeaf);
+			if (previewLeaf.view instanceof StylePreviewView) {
+				previewLeaf.view.requestRefresh();
+			}
+		}
+	}
+
+	private async activateStylePreviewView(): Promise<void> {
+		const { workspace } = this.app;
+		let leaf = workspace.getLeavesOfType(STYLE_PREVIEW_VIEW_TYPE)[0] ?? null;
+		if (!leaf) {
+			leaf = workspace.getRightLeaf(false);
+			if (!leaf) {
+				new Notice("Unable to open style preview.");
+				return;
+			}
+			await leaf.setViewState({
+				type: STYLE_PREVIEW_VIEW_TYPE,
+				active: true,
+			});
+		}
 		void workspace.revealLeaf(leaf);
+		if (leaf.view instanceof StylePreviewView) {
+			leaf.view.requestRefresh();
+		}
 	}
 }

@@ -1,4 +1,5 @@
 import { Setting } from "obsidian";
+import type { StyleEditorTabId } from "../../domain/style-editor-tab-ids";
 import type { StyleEditorState } from "../../domain/style-editor-state";
 import {
 	applyTokenDefaults,
@@ -14,6 +15,11 @@ export class StyleDesignerView {
 		private onChange: (state: StyleEditorState) => void,
 		private options?: {
 			onPrintBackgroundChange?: (printBackground: boolean) => void;
+			onStyleTabChange?: (tabId: StyleEditorTabId) => void;
+			initialStyleTabId?: StyleEditorTabId;
+			stylePreviewToggle?: {
+				toggle: () => Promise<void>;
+			};
 		},
 	) {}
 
