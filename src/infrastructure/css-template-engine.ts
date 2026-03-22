@@ -58,6 +58,8 @@ export class CssTemplateEngine {
 	--ra-page-margin-right: ${t.pageMarginRight};
 	--ra-page-margin-bottom: ${t.pageMarginBottom};
 	--ra-page-margin-left: ${t.pageMarginLeft};
+	--ra-page-width: ${pageSize.width};
+	--ra-page-height: ${pageSize.height};
 	--ra-code-bg: ${t.codeBlockBackground};
 	--ra-code-normal: ${t.codeNormalColor};
 }
@@ -193,6 +195,14 @@ export class CssTemplateEngine {
 	page-break-inside: avoid !important;
 	page-break-after: avoid !important;
 	margin: ${t.imageMarginTop}px ${t.imageMarginHorizontal} ${t.imageMarginBottom}px !important;
+	/* Respect Obsidian wikilink width/height attrs; max-* caps oversize; object-fit keeps aspect inside box */
+	max-width: 100% !important;
+	max-height: calc(
+		var(--ra-page-height) - var(--ra-page-margin-top) - var(--ra-page-margin-bottom)
+	) !important;
+	object-fit: contain !important;
+	object-position: center !important;
+	box-sizing: border-box !important;
 }
 
 /* Raster math PNGs: do not force display:block on inline formulas (breaks line flow). */

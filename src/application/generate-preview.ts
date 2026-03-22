@@ -3,7 +3,7 @@ import type { MarkdownComposer } from "../infrastructure/markdown-composer";
 import type { LinkResolver } from "../infrastructure/link-resolver";
 import type { HtmlRenderer } from "../infrastructure/html-renderer";
 import type { CssTemplateEngine } from "../infrastructure/css-template-engine";
-import type { AssetResolver } from "../infrastructure/asset-resolver";
+import type { AssetLinkTarget, AssetResolver } from "../infrastructure/asset-resolver";
 import { applyExportMarkdownTransforms } from "../infrastructure/export-markdown-transforms";
 
 export interface PreviewBundle {
@@ -12,6 +12,14 @@ export interface PreviewBundle {
 	css: string;
 }
 
+export type GeneratePreviewOptions = {
+	/**
+	 * `obsidian` — `app://` URLs for in-app preview.
+	 * `fileExport` — `file://` URLs so Chromium/Electron can load images when printing from disk.
+	 */
+	assetLinkTarget?: AssetLinkTarget;
+};
+
 export async function generatePreview(
 	project: ReportProject,
 	composer: MarkdownComposer,
@@ -19,13 +27,15 @@ export async function generatePreview(
 	renderer: HtmlRenderer,
 	cssTemplateEngine: CssTemplateEngine,
 	assetResolver: AssetResolver,
+	options?: GeneratePreviewOptions,
 ): Promise<PreviewBundle> {
 	const markdown = await composer.compose(project);
 	const resolvedMarkdown = await linkResolver.resolve(project, markdown);
 	const exportMarkdown = applyExportMarkdownTransforms(resolvedMarkdown);
 	let html = await renderer.render(project, exportMarkdown);
 	html = prependCoverHtml(project, html);
-	html = await assetResolver.resolveHtmlAssets(project, html);
+	const assetTarget = options?.assetLinkTarget ?? "obsidian";
+	html = await assetResolver.resolveHtmlAssets(project, html, assetTarget);
 	const css = cssTemplateEngine.build(project);
 	return { markdown: exportMarkdown, html, css };
 }

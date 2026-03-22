@@ -44,6 +44,15 @@ html, body { margin: 0; background: ${t.pageBackgroundColor} !important; }
 	padding-bottom: ${t.pageMarginBottom};
 	padding-left: ${t.pageMarginLeft};
 }
+/* Large figures: cap to sheet; keep wikilink img dimensions when smaller (no width/height override). */
+.ra-print-sheet .ra-export-page-body img:not(.ra-math-export-img),
+.ra-print-sheet .ra-export-page-body svg {
+	max-width: 100% !important;
+	max-height: calc(${page.height} - ${t.pageMarginTop} - ${t.pageMarginBottom}) !important;
+	object-fit: contain !important;
+	object-position: center !important;
+	box-sizing: border-box !important;
+}
 </style>
 <script>
 async function waitForAssets() {

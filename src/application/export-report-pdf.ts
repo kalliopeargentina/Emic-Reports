@@ -24,6 +24,7 @@ export async function exportReportPdf(
 		renderer,
 		cssTemplateEngine,
 		assetResolver,
+		{ assetLinkTarget: "fileExport" },
 	);
 	await pdfExporter.export(project, preview, outputPath);
 }
