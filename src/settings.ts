@@ -11,6 +11,8 @@ export interface ReportArchitectSettings {
 	defaultFormat: ExportFormat;
 	openPreviewOnExport: boolean;
 	projectsIndex: Array<{ id: string; name: string; updatedAt: string }>;
+	/** Style template id for the "Print active note" command (empty = first available / built-in). */
+	quickPrintTemplateId: string;
 }
 
 export const DEFAULT_SETTINGS: ReportArchitectSettings = {
@@ -20,6 +22,7 @@ export const DEFAULT_SETTINGS: ReportArchitectSettings = {
 	defaultFormat: "pdf",
 	openPreviewOnExport: true,
 	projectsIndex: [],
+	quickPrintTemplateId: "",
 };
 
 export class ReportArchitectSettingTab extends PluginSettingTab {
@@ -35,6 +38,13 @@ export class ReportArchitectSettingTab extends PluginSettingTab {
 		containerEl.empty();
 
 		new Setting(containerEl)
+			.setHeading()
+			.setName("Reports")
+			.setDesc(
+				"Saved reports live in the plugin data folder. Use the report composer to open, rename, save, create, or delete them.",
+			);
+
+		new Setting(containerEl)
 			.setName("Default output folder")
 			.addText((text) =>
 				text
@@ -45,6 +55,25 @@ export class ReportArchitectSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					}),
 			);
+
+		new Setting(containerEl)
+			.setName("Default template for quick print")
+			.setDesc('Used when you run the command "Print active note". Export format follows "Default export format". Falls back to the first listed template if the id is missing.')
+			.addDropdown((dropdown) => {
+				void (async () => {
+					const list = await this.plugin.templateRepository.list();
+					for (const t of list) {
+						dropdown.addOption(t.id, t.builtin ? `${t.name} (built-in)` : t.name);
+					}
+					const cur = this.plugin.settings.quickPrintTemplateId;
+					const valid = cur && list.some((t) => t.id === cur);
+					dropdown.setValue(valid ? cur : (list[0]?.id ?? ""));
+					dropdown.onChange(async (value) => {
+						this.plugin.settings.quickPrintTemplateId = value;
+						await this.plugin.saveSettings();
+					});
+				})();
+			});
 
 		new Setting(containerEl)
 			.setName("Folder for templates")

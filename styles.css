@@ -98,6 +98,32 @@
 	margin-bottom: 12px;
 }
 
+/* Save / Preview / Export / Delete on one row; wrap on narrow panels */
+.ra-action-panel .setting-item {
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px 10px;
+}
+
+.ra-action-panel .setting-item-control {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	align-items: center;
+}
+
+/* Report picker row: only dropdown + New report (avoids overflowing the panel) */
+.ra-report-manager .setting-item {
+	flex-wrap: wrap;
+}
+
+.ra-report-manager .setting-item-control {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	align-items: center;
+}
+
 .ra-node-list {
 	display: flex;
 	flex-direction: column;

@@ -8,9 +8,11 @@ import { validateProject } from "../../domain/report-project";
 import { ReportNodeTree } from "../components/report-node-tree";
 import { renderExportFormatSelector } from "../components/export-format-selector";
 import { renderPageSizePicker } from "../components/page-size-picker";
+import { ConfirmModal } from "../modals/confirm-modal";
 import { CoverConfigModal } from "../modals/cover-config-modal";
 import { FolderPickerModal } from "../modals/folder-picker-modal";
 import { ReportPreviewModal } from "../modals/report-preview-modal";
+import { TextInputModal } from "../modals/text-input-modal";
 import { cloneJson } from "../../utils/json-clone";
 
 export const REPORT_ARCHITECT_VIEW_TYPE = "report-architect-view";
@@ -49,12 +51,59 @@ export class ReportArchitectView extends ItemView {
 		const container = this.contentEl;
 		container.empty();
 		const project = await this.plugin.ensureActiveProject();
+		const allProjects = await this.plugin.projectRepository.list();
 
 		container.createEl("h2", { text: project.name });
+		const reportBar = container.createDiv({ cls: "ra-controls ra-report-manager" });
+		new Setting(reportBar)
+			.setName("Report")
+			.setDesc("Choose a saved report or create a new one. Use Save, Preview, and Export at the bottom.")
+			.addDropdown((dropdown) => {
+				for (const p of allProjects) {
+					dropdown.addOption(p.id, p.name || "Untitled report");
+				}
+				if (!allProjects.some((p) => p.id === project.id)) {
+					dropdown.addOption(project.id, project.name || "Current report");
+				}
+				dropdown.setValue(project.id);
+				dropdown.onChange((id) => {
+					void (async () => {
+						if (id === project.id) return;
+						const ok = await this.plugin.switchToReport(id);
+						if (!ok) {
+							new Notice("Report not found.");
+							await this.render();
+							return;
+						}
+						await this.render();
+					})();
+				});
+			})
+			.addButton((btn) =>
+				btn.setButtonText("New report").setCta().onClick(() => {
+					new TextInputModal(
+						this.app,
+						{
+							title: "New report",
+							description: "Creates a new empty report and opens it here.",
+							placeholder: "Report name",
+							initialValue: "Untitled report",
+							submitLabel: "Create",
+						},
+						async (name) => {
+							const n = name.trim() || "Untitled report";
+							await this.plugin.createReport(n);
+							new Notice(`Created "${n}".`);
+							await this.render();
+						},
+					).open();
+				}),
+			);
+
 		const controls = container.createDiv({ cls: "ra-controls" });
 
 		new Setting(controls)
-			.setName("Project name")
+			.setName("Report name")
 			.addText((text) =>
 				text.setValue(project.name).onChange((value) => {
 					void (async () => {
@@ -265,6 +314,14 @@ export class ReportArchitectView extends ItemView {
 		const actionPanel = container.createDiv({ cls: "ra-action-panel" });
 		new Setting(actionPanel)
 			.addButton((btn) =>
+				btn.setButtonText("Save").onClick(() => {
+					void (async () => {
+						await this.plugin.saveReportNow(project);
+						new Notice("Report saved.");
+					})();
+				}),
+			)
+			.addButton((btn) =>
 				btn.setButtonText("Preview").setCta().onClick(async () => {
 					const errors = [...validateProject(project), ...validateProjectVault(project, this.app)];
 					if (errors.length) {
@@ -285,6 +342,26 @@ export class ReportArchitectView extends ItemView {
 			.addButton((btn) =>
 				btn.setButtonText("Export").onClick(async () => {
 					await this.plugin.exportProject(project);
+				}),
+			)
+			.addButton((btn) =>
+				btn.setButtonText("Delete").setWarning().onClick(() => {
+					const id = project.id;
+					const label = project.name;
+					new ConfirmModal(
+						this.app,
+						{
+							title: "Delete report",
+							message: `Delete "${label}"? This cannot be undone.`,
+							confirmText: "Delete",
+							isDangerous: true,
+						},
+						async () => {
+							await this.plugin.deleteReport(id);
+							new Notice(`Deleted "${label}".`);
+							await this.render();
+						},
+					).open();
 				}),
 			);
 	}

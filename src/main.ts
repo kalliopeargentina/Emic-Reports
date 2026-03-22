@@ -1,4 +1,5 @@
-import { Notice, Plugin, type WorkspaceLeaf } from "obsidian";
+import { Notice, Plugin, TFile, type WorkspaceLeaf } from "obsidian";
+import { buildQuickPrintProjectForNote } from "./application/build-quick-print-project";
 import { createProject } from "./application/create-project";
 import { exportReportDocx } from "./application/export-report-docx";
 import { exportReportPdf } from "./application/export-report-pdf";
@@ -18,6 +19,7 @@ import {
 } from "./infrastructure/project-repository";
 import { TemplateRepository } from "./infrastructure/template-repository";
 import { ReportArchitectSettingTab, DEFAULT_SETTINGS, type ReportArchitectSettings } from "./settings";
+import { SavedReportPickerModal } from "./ui/modals/saved-report-picker-modal";
 import {
 	REPORT_ARCHITECT_VIEW_TYPE,
 	ReportArchitectView,
@@ -99,6 +101,16 @@ export default class ReportArchitectPlugin extends Plugin {
 				const project = await this.ensureActiveProject();
 				await this.exportProject(project);
 			},
+		});
+		this.addCommand({
+			id: "print-active-note",
+			name: "Print active note",
+			callback: () => void this.runQuickPrintActiveNote(),
+		});
+		this.addCommand({
+			id: "export-saved-report",
+			name: "Export saved report",
+			callback: () => void this.openSavedReportExportPicker(),
 		});
 
 		this.addSettingTab(new ReportArchitectSettingTab(this.app, this));
@@ -183,6 +195,78 @@ export default class ReportArchitectPlugin extends Plugin {
 			updatedAt: project.updatedAt,
 		}));
 		await this.saveSettings();
+	}
+
+	/** Switch the active report shown in the composer (does not save the current one). */
+	async switchToReport(projectId: string): Promise<boolean> {
+		const next = await this.projectRepository.getById(projectId);
+		if (!next) return false;
+		this.activeProjectId = projectId;
+		return true;
+	}
+
+	/** Create a new report, save it, set it active, and refresh the index. */
+	async createReport(name: string): Promise<ReportProject> {
+		const trimmed = name.trim() || "Untitled report";
+		const project = await createProject(this.projectRepository, trimmed);
+		this.activeProjectId = project.id;
+		await this.refreshProjectIndex();
+		return project;
+	}
+
+	/** Delete a report file. If it was active, selects another or none until next open. */
+	async deleteReport(projectId: string): Promise<boolean> {
+		const existing = await this.projectRepository.getById(projectId);
+		if (!existing) return false;
+		await this.projectRepository.delete(projectId);
+		if (this.activeProjectId === projectId) {
+			this.activeProjectId = null;
+			const remaining = await this.projectRepository.list();
+			this.activeProjectId = remaining[0]?.id ?? null;
+		}
+		await this.refreshProjectIndex();
+		return true;
+	}
+
+	/** Persist the report and refresh the saved list (same data as auto-save on edits). */
+	async saveReportNow(project: ReportProject): Promise<void> {
+		project.updatedAt = new Date().toISOString();
+		await this.projectRepository.save(project);
+		await this.refreshProjectIndex();
+	}
+
+	/** Quick export: current note as a one-off report using default template and default export format from settings. */
+	async runQuickPrintActiveNote(): Promise<void> {
+		const file = this.app.workspace.getActiveFile();
+		if (!(file instanceof TFile) || file.extension !== "md") {
+			new Notice("Open a Markdown note first.");
+			return;
+		}
+		try {
+			const project = await buildQuickPrintProjectForNote(file, this.settings, this.templateRepository);
+			if (!project) {
+				new Notice("No template available for quick print. Check plugin settings.");
+				return;
+			}
+			await this.exportProject(project);
+		} catch (e) {
+			const msg = e instanceof Error ? e.message : String(e);
+			new Notice(`Quick print failed: ${msg}`);
+		}
+	}
+
+	/** Fuzzy-pick a saved report and export it (PDF / DOCX per report settings). */
+	openSavedReportExportPicker(): void {
+		void (async () => {
+			const all = await this.projectRepository.list();
+			if (all.length === 0) {
+				new Notice("No saved reports. Create one in the report composer.");
+				return;
+			}
+			new SavedReportPickerModal(this.app, all, (p: ReportProject) => {
+				void this.exportProject(p);
+			}).open();
+		})();
 	}
 
 	async exportProject(project: ReportProject): Promise<void> {
