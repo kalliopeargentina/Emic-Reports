@@ -1,7 +1,11 @@
 // @vitest-environment happy-dom
 
 import { describe, expect, it } from "vitest";
-import { expandDetailsElementsForExport, stripCodeBlockChromeForExport } from "./html-export-sanitize";
+import {
+	expandDetailsElementsForExport,
+	normalizeThematicBreakElementsForExport,
+	stripCodeBlockChromeForExport,
+} from "./html-export-sanitize";
 
 describe("stripCodeBlockChromeForExport", () => {
 	it("removes button inside pre", () => {
@@ -21,6 +25,32 @@ describe("stripCodeBlockChromeForExport", () => {
 </div>`;
 		stripCodeBlockChromeForExport(root);
 		expect(root.querySelectorAll("button").length).toBe(0);
+	});
+});
+
+describe("normalizeThematicBreakElementsForExport", () => {
+	it("replaces paragraph-only --- *** ___ (and spaced variants) with hr", () => {
+		const root = document.createElement("div");
+		root.innerHTML = `<p>---</p><p>***</p><p>___</p><p>* * *</p><p>- - -</p>`;
+		normalizeThematicBreakElementsForExport(root);
+		const hrs = root.querySelectorAll("hr");
+		expect(hrs.length).toBe(5);
+		expect(root.querySelectorAll("p").length).toBe(0);
+	});
+
+	it("replaces empty nested strong/em (mis-tokenized ***) with hr", () => {
+		const root = document.createElement("div");
+		root.innerHTML = `<p><strong><em></em></strong></p>`;
+		normalizeThematicBreakElementsForExport(root);
+		expect(root.querySelectorAll("hr").length).toBe(1);
+	});
+
+	it("does not replace normal paragraphs", () => {
+		const root = document.createElement("div");
+		root.innerHTML = `<p>Intro text</p><p>--</p>`;
+		normalizeThematicBreakElementsForExport(root);
+		expect(root.querySelectorAll("hr").length).toBe(0);
+		expect(root.querySelectorAll("p").length).toBe(2);
 	});
 });
 

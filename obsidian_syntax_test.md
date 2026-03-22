@@ -566,9 +566,9 @@ Three ways to make a horizontal rule:
 
 ---
 
----
+***
 
----
+___
 
 ---
 

@@ -35,6 +35,61 @@ export function expandDetailsElementsForExport(root: HTMLElement): void {
 	}
 }
 
+/**
+ * Whether plain text matches a CommonMark thematic break line (`---`, `***`, `___`, optional
+ * spaces between markers like `* * *`).
+ */
+function paragraphTextLooksLikeThematicBreak(text: string): boolean {
+	const compact = text
+		.replace(/\u00A0/g, " ")
+		.replace(/\s+/g, "");
+	return /^(\*{3,}|_{3,}|-{3,})$/.test(compact);
+}
+
+/**
+ * Some parsers render `***` as empty nested `<strong><em></em></strong>` instead of `<hr>`.
+ */
+function isEmptyThematicBreakEmphasisParagraph(p: HTMLParagraphElement): boolean {
+	const raw = (p.textContent ?? "").replace(/\u00A0/g, " ").trim();
+	if (raw.length > 0) return false;
+	if (p.querySelector("a, img, code, pre, svg, canvas, table")) return false;
+	if (p.querySelector("br")) return false;
+	const inner = p.innerHTML.trim();
+	if (inner.length === 0) return false;
+	if (
+		/<strong[^>]*>\s*<em[^>]*>\s*<\/em>\s*<\/strong>/i.test(inner) ||
+		/<em[^>]*>\s*<strong[^>]*>\s*<\/strong>\s*<\/em>/i.test(inner)
+	) {
+		return true;
+	}
+	/** Lone empty strong/em can come from mis-tokenized `***` */
+	if (/^<strong[^>]*>\s*<\/strong>\s*$/i.test(inner) || /^<em[^>]*>\s*<\/em>\s*$/i.test(inner)) {
+		return true;
+	}
+	return false;
+}
+
+/**
+ * Obsidian's MarkdownRenderer may emit `<hr>` for `---` but `<p>***</p>` / empty emphasis for
+ * `***` or `___`, so export CSS (`.ra-render-frame hr`) and PDF pagination (`<hr>` splits pages)
+ * miss those. DOCX already treats all three line forms as page breaks — align HTML/PDF with `<hr>`.
+ */
+export function normalizeThematicBreakElementsForExport(root: HTMLElement): void {
+	for (const p of Array.from(root.querySelectorAll("p"))) {
+		const text = (p.textContent ?? "").replace(/\u00A0/g, " ");
+		if (paragraphTextLooksLikeThematicBreak(text)) {
+			if (p.querySelector("a, img, code, pre, svg, canvas")) continue;
+			const hr = document.createElement("hr");
+			p.replaceWith(hr);
+			continue;
+		}
+		if (isEmptyThematicBreakEmphasisParagraph(p)) {
+			const hr = document.createElement("hr");
+			p.replaceWith(hr);
+		}
+	}
+}
+
 export function stripCodeBlockChromeForExport(root: HTMLElement): void {
 	root.querySelectorAll("pre button").forEach((b) => {
 		(b as HTMLElement).remove();

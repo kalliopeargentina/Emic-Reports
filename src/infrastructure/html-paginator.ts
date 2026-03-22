@@ -166,7 +166,15 @@ export function paginateHtml(project: ReportProject, html: string): string[] {
 		const originalNode = queue.shift()!;
 		const tagName = originalNode.tagName.toUpperCase();
 		if (tagName === "HR") {
-			pushPage();
+			// Commit any content before this rule; then each extra <hr> with nothing between
+			// must still produce a blank PDF sheet (DOCX-style page breaks stack).
+			if (currentPage.length > 0) {
+				pageElements.push(currentPage);
+				currentPage = [];
+			} else if (pageElements.length > 0) {
+				pageElements.push([]);
+			}
+			clearElement(body);
 			continue;
 		}
 

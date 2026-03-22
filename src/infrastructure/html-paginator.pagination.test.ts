@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { createEmptyProject } from "../domain/report-project";
 import { paginateHtml } from "./html-paginator";
 
+
 function countSubstr(hay: string, needle: string): number {
 	let n = 0;
 	let pos = 0;
@@ -15,6 +16,33 @@ function countSubstr(hay: string, needle: string): number {
 	}
 	return n;
 }
+
+describe("paginateHtml consecutive hr (blank sheets)", () => {
+	it("inserts an empty page when two hr have no content between them", () => {
+		const project = createEmptyProject("test");
+		project.paperSize = "Custom";
+		project.customPageSize = { width: 210, height: 200, unit: "mm" };
+
+		const html = `<div><p id="a">A</p><hr><hr><p id="b">B</p></div>`;
+		const pages = paginateHtml(project, html);
+		// A | (blank) | B  → 3 sheets; middle page has no element markup
+		expect(pages.length).toBe(3);
+		expect(pages[0]).toContain('id="a"');
+		expect(pages[1]?.trim()).toBe("");
+		expect(pages[2]).toContain('id="b"');
+	});
+
+	it("does not add a leading blank page for a lone hr at the start", () => {
+		const project = createEmptyProject("test");
+		project.paperSize = "Custom";
+		project.customPageSize = { width: 210, height: 200, unit: "mm" };
+
+		const html = `<div><hr><p id="only">Only</p></div>`;
+		const pages = paginateHtml(project, html);
+		expect(pages.length).toBe(1);
+		expect(pages[0]).toContain('id="only"');
+	});
+});
 
 describe("paginateHtml integration", () => {
 	it("preserves all callout blockquotes when splitting heading + callout (wrapper expand)", () => {
