@@ -54,6 +54,7 @@ import {
 } from "./plugin-diagram-render";
 import { rasterizeSvgWithResvg } from "./resvg-rasterizer";
 import { normalizeMermaidSvgForRaster } from "./mermaid-svg-normalize";
+import { highlightCodeToDocxRuns } from "./docx-code-highlight";
 import { DocxMathRasterSession } from "./docx-math-raster-session";
 import { docxMathImageTransformationPx } from "./math-export-sizing";
 
@@ -578,7 +579,7 @@ export class DocxExporter {
 						"[DOCX-export] SVG-only mode: skip PNG for canvas chart lang=%s",
 						codeFenceLang,
 					);
-					return this.createCodeBlockParagraph(body, tokens);
+					return this.createCodeBlockParagraph(body, tokens, codeFenceLang);
 				}
 				const emic = await this.embedDiagramFenceAsPng(
 					codeFenceLang,
@@ -588,7 +589,7 @@ export class DocxExporter {
 					"[DOCX-export] canvas chart PNG for lang=%s",
 				);
 				if (emic) return emic;
-				return this.createCodeBlockParagraph(body, tokens);
+				return this.createCodeBlockParagraph(body, tokens, codeFenceLang);
 			}
 			try {
 				// eslint-disable-next-line no-console
@@ -609,7 +610,7 @@ export class DocxExporter {
 							svgAsset.width,
 							svgAsset.height,
 						);
-						return this.createCodeBlockParagraph(body, tokens);
+						return this.createCodeBlockParagraph(body, tokens, codeFenceLang);
 					} else {
 						if (isMermaid) {
 							// eslint-disable-next-line no-console
@@ -629,7 +630,7 @@ export class DocxExporter {
 						if (isMermaid && !svgPngFallback) {
 							// eslint-disable-next-line no-console
 							console.info("[DOCX-export] mermaid svg raster fallback failed -> code block");
-							return this.createCodeBlockParagraph(body, tokens);
+							return this.createCodeBlockParagraph(body, tokens, codeFenceLang);
 						}
 					// eslint-disable-next-line no-console
 						console.info(
@@ -662,9 +663,9 @@ export class DocxExporter {
 			if (DOCX_SVG_ONLY_TEST) {
 				// eslint-disable-next-line no-console
 				console.info("[DOCX-export] SVG-only mode: skip PNG fallback for lang=%s", codeFenceLang);
-				return this.createCodeBlockParagraph(body, tokens);
+				return this.createCodeBlockParagraph(body, tokens, codeFenceLang);
 			}
-			if (isMermaid) return this.createCodeBlockParagraph(body, tokens);
+			if (isMermaid) return this.createCodeBlockParagraph(body, tokens, codeFenceLang);
 			const fallback = await this.embedDiagramFenceAsPng(
 				codeFenceLang,
 				body,
@@ -674,7 +675,7 @@ export class DocxExporter {
 			);
 			if (fallback) return fallback;
 		}
-		return this.createCodeBlockParagraph(body, tokens);
+		return this.createCodeBlockParagraph(body, tokens, codeFenceLang);
 	}
 
 	private async rasterizeSvgBytesToPng(
@@ -1082,20 +1083,14 @@ export class DocxExporter {
 		return runs;
 	}
 
-	private createCodeBlockParagraph(text: string, tokens: StyleTokens): Paragraph {
-		const lines = text.split("\n");
-		const runs: TextRun[] = [];
-		for (let i = 0; i < lines.length; i += 1) {
-			runs.push(
-				new TextRun({
-					text: lines[i] ?? "",
-					font: tokens.fontMono,
-					color: this.toDocxColor(tokens.codeInlineColor),
-					size: this.ptToHalfPoint(tokens.codeFontSize),
-					break: i === 0 ? undefined : 1,
-				}),
-			);
-		}
+	private createCodeBlockParagraph(text: string, tokens: StyleTokens, fenceLang: string): Paragraph {
+		const runs = highlightCodeToDocxRuns(
+			text,
+			fenceLang,
+			tokens,
+			(c) => this.toDocxColor(c),
+			(pt) => this.ptToHalfPoint(pt),
+		);
 
 		return new Paragraph({
 			children: runs.length ? runs : [new TextRun("")],
