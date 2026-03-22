@@ -6,6 +6,7 @@ import {
 	type HeadingNumberingMode,
 	type StyleTokens,
 } from "../domain/style-template";
+import { buildExportCodeBlockChromeHideCss, buildExportHljsCss } from "./export-hljs-css";
 import { PageSizeResolver } from "./page-size-resolver";
 
 export class CssTemplateEngine {
@@ -26,6 +27,7 @@ export class CssTemplateEngine {
 				: `font-size: ${t.captionFontSize}pt;`;
 
 		const calloutCss = this.buildCalloutCss(t);
+		const exportSyntaxCss = `${buildExportHljsCss()}\n${buildExportCodeBlockChromeHideCss()}`;
 
 		const listBulletCss = t.listCustomBullet
 			? `
@@ -167,6 +169,8 @@ export class CssTemplateEngine {
 	font-size: ${t.codeFontSize}pt !important;
 	color: ${t.codeInlineColor} !important;
 }
+
+${exportSyntaxCss}
 
 .ra-render-frame mark {
 	border-radius: 2px !important;
