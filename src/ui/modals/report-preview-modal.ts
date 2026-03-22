@@ -1,11 +1,12 @@
 import { Modal, type App } from "obsidian";
 import type { ReportProject } from "../../domain/report-project";
 import { paginateHtml } from "../../infrastructure/html-paginator";
+import { buildIsolatedPreviewPageDocument } from "../../infrastructure/pdf-print-html";
 import { PageSizeResolver } from "../../infrastructure/page-size-resolver";
 
 export class ReportPreviewModal extends Modal {
 	private pageSizeResolver = new PageSizeResolver();
-	/** One slot per page (visibility toggled); contains scale wrapper + paper frame. */
+	/** One slot per page (visibility toggled); contains scale wrapper + isolated iframe (same document shell as PDF). */
 	private pageEls: HTMLElement[] = [];
 	private currentIndex = 0;
 	private pageLabelEl: HTMLElement | null = null;
@@ -26,9 +27,7 @@ export class ReportPreviewModal extends Modal {
 		this.contentEl.empty();
 		this.contentEl.addClass("ra-preview-modal");
 
-		if (this.previewCss.trim()) {
-			this.contentEl.createEl("style", { text: this.previewCss });
-		}
+		/** Export CSS is injected only inside each iframe (standalone document like PDF), not on the modal — Obsidian UI CSS was hiding callout content. */
 
 		const controlsEl = this.contentEl.createDiv({ cls: "ra-preview-controls" });
 		const prevBtn = controlsEl.createEl("button", { cls: "mod-cta", text: "Previous" });
@@ -55,13 +54,20 @@ export class ReportPreviewModal extends Modal {
 
 		const pageSize = this.pageSizeResolver.resolve(this.project);
 		const pages = paginateHtml(this.project, this.previewHtml);
+		const css = this.previewCss.trim() ? this.previewCss : "/* no export css */";
+
 		for (const pageHtml of pages) {
-			const body = this.createPageSlotAndBody(pageSize);
-			const pageDoc = new DOMParser().parseFromString(`<div id="ra-page">${pageHtml}</div>`, "text/html");
-			const pageRoot = pageDoc.getElementById("ra-page");
-			const nodes = pageRoot ? Array.from(pageRoot.children) : [];
-			for (const node of nodes) {
-				body.appendChild(node.cloneNode(true));
+			const slot = this.createPageSlot(pageSize);
+			const iframe = slot.querySelector("iframe.ra-preview-page-iframe") as HTMLIFrameElement | null;
+			if (iframe) {
+				iframe.srcdoc = buildIsolatedPreviewPageDocument(this.project, pageHtml, css);
+				iframe.addEventListener(
+					"load",
+					() => {
+						requestAnimationFrame(() => this.updatePreviewPageScale());
+					},
+					{ once: true },
+				);
 			}
 		}
 
@@ -87,29 +93,27 @@ export class ReportPreviewModal extends Modal {
 	}
 
 	/**
-	 * Slots fill the preview host; inner paper keeps true page size, then scales down to fit (no modal resize).
+	 * One page = one iframe with the same standalone HTML as PDF (export CSS + layout only inside the document).
 	 */
-	private createPageSlotAndBody(pageSize: { width: string; height: string }): HTMLElement {
+	private createPageSlot(pageSize: { width: string; height: string }): HTMLElement {
 		if (!this.pageHostEl) {
 			throw new Error("Preview host is not ready.");
 		}
 		const slot = this.pageHostEl.createDiv({ cls: "ra-preview-page-slot ra-page-hidden" });
 		const outer = slot.createDiv({ cls: "ra-preview-scale-outer" });
 		const inner = outer.createDiv({ cls: "ra-preview-scale-inner" });
-		const frame = inner.createDiv({ cls: "ra-paper-frame ra-preview-paged" });
-		frame.style.width = pageSize.width;
-		frame.style.height = pageSize.height;
-		this.applyPageStyles(frame);
-		frame.style.paddingTop = this.project.styleTemplate.tokens.pageMarginTop;
-		frame.style.paddingRight = this.project.styleTemplate.tokens.pageMarginRight;
-		frame.style.paddingBottom = this.project.styleTemplate.tokens.pageMarginBottom;
-		frame.style.paddingLeft = this.project.styleTemplate.tokens.pageMarginLeft;
-
-		const body = frame.createDiv({
-			cls: "ra-render-frame ra-page-body markdown-preview-view markdown-reading-view markdown-rendered",
+		const iframe = inner.createEl("iframe", {
+			cls: "ra-preview-page-iframe",
 		});
+		iframe.setAttribute("sandbox", "allow-same-origin");
+		iframe.setAttribute("title", "Report page preview");
+		iframe.style.width = pageSize.width;
+		iframe.style.height = pageSize.height;
+		iframe.style.border = "0";
+		iframe.style.display = "block";
+		iframe.style.background = "white";
 		this.pageEls.push(slot);
-		return body;
+		return slot;
 	}
 
 	private attachPreviewResizeObserver(): void {
@@ -128,15 +132,15 @@ export class ReportPreviewModal extends Modal {
 
 		const outer = slot.querySelector(".ra-preview-scale-outer") as HTMLElement | null;
 		const inner = slot.querySelector(".ra-preview-scale-inner") as HTMLElement | null;
-		const frame = slot.querySelector(".ra-paper-frame") as HTMLElement | null;
-		if (!outer || !inner || !frame) return;
+		const iframe = slot.querySelector("iframe.ra-preview-page-iframe") as HTMLIFrameElement | null;
+		if (!outer || !inner || !iframe) return;
 
 		const hostW = this.pageHostEl.clientWidth;
 		const hostH = this.pageHostEl.clientHeight;
 		if (hostW < 4 || hostH < 4) return;
 
-		const fw = frame.offsetWidth;
-		const fh = frame.offsetHeight;
+		const fw = iframe.offsetWidth;
+		const fh = iframe.offsetHeight;
 		if (fw < 1 || fh < 1) return;
 
 		const s = Math.min(hostW / fw, hostH / fh, 1);
@@ -148,25 +152,5 @@ export class ReportPreviewModal extends Modal {
 
 		outer.style.width = `${fw * s}px`;
 		outer.style.height = `${fh * s}px`;
-	}
-
-	private applyPageStyles(target: HTMLElement): void {
-		target.style.setProperty("--ra-font-body", this.project.styleTemplate.tokens.fontBody);
-		target.style.setProperty("--ra-font-heading", this.project.styleTemplate.tokens.fontHeading);
-		target.style.setProperty("--ra-font-mono", this.project.styleTemplate.tokens.fontMono);
-		target.style.setProperty("--ra-text", this.project.styleTemplate.tokens.colorText);
-		target.style.setProperty("--ra-body-size", `${this.project.styleTemplate.tokens.fontSizeBody}pt`);
-		target.style.setProperty(
-			"--ra-body-line-height",
-			String(this.project.styleTemplate.tokens.lineHeightBody),
-		);
-		target.style.setProperty(
-			"--ra-p-spacing",
-			`${this.project.styleTemplate.tokens.paragraphSpacing}px`,
-		);
-		target.style.setProperty(
-			"--ra-section-spacing",
-			`${this.project.styleTemplate.tokens.sectionSpacing}px`,
-		);
 	}
 }

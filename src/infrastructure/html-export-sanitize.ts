@@ -11,6 +11,66 @@ function isLikelyCodeBlockWrapper(el: HTMLElement): boolean {
 }
 
 /**
+ * Open shadow roots (some Obsidian/widgets render into shadow DOM) are not in `innerHTML` unless
+ * flattened. Move shadow children into a light-DOM wrapper before serializing.
+ */
+export function flattenOpenShadowRootsForExport(root: HTMLElement): void {
+	let progress = true;
+	let guard = 0;
+	while (progress && guard < 50) {
+		guard += 1;
+		progress = false;
+		for (const el of Array.from(root.querySelectorAll("*"))) {
+			const h = el as HTMLElement & { shadowRoot?: ShadowRoot | null };
+			if (!h.shadowRoot) continue;
+			progress = true;
+			const mount = document.createElement("div");
+			mount.className = "ra-export-shadow-flat";
+			while (h.shadowRoot.firstChild) {
+				mount.appendChild(h.shadowRoot.firstChild);
+			}
+			h.appendChild(mount);
+		}
+	}
+}
+
+/**
+ * Foldable callouts (`[!note]-` etc.) may render with `.is-collapsed` and inline height limits on
+ * `.callout-content`. Export/preview serializes that DOM — body looks empty. Unfold for export.
+ *
+ * Obsidian's app.css often sets `display:none` / `max-height:0` on collapsed callouts with
+ * `!important`; removing inline props is not enough. We set competing `!important` inline styles so
+ * they win in the preview modal and serialize into exported HTML for PDF.
+ */
+export function expandFoldableCalloutsForExport(root: HTMLElement): void {
+	for (const el of Array.from(root.querySelectorAll(".callout"))) {
+		const h = el as HTMLElement;
+		h.classList.remove("is-collapsed");
+		h.removeAttribute("hidden");
+	}
+	for (const el of Array.from(root.querySelectorAll(".callout-content"))) {
+		const h = el as HTMLElement;
+		h.removeAttribute("aria-hidden");
+		h.removeAttribute("hidden");
+		h.style.setProperty("display", "block", "important");
+		h.style.setProperty("max-height", "none", "important");
+		h.style.setProperty("height", "auto", "important");
+		h.style.setProperty("overflow", "visible", "important");
+		h.style.setProperty("visibility", "visible", "important");
+		h.style.setProperty("opacity", "1", "important");
+	}
+}
+
+/** Remove off-screen render positioning from the MarkdownRenderer host so it is not leaked into serialized HTML. */
+export function clearOffscreenRenderHostStyles(host: HTMLElement): void {
+	host.style.removeProperty("opacity");
+	host.style.removeProperty("position");
+	host.style.removeProperty("left");
+	host.style.removeProperty("top");
+	host.style.removeProperty("pointer-events");
+}
+
+/**
  * Replace `<details>` with always-visible content: summary becomes a bold paragraph, body stays as
  * normal flow (print/PDF often collapse &lt;details&gt; or show disclosure UI we don't want).
  */

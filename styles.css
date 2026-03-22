@@ -144,6 +144,18 @@
 .ra-preview-scale-inner {
 	display: block;
 	transform-origin: 0 0;
+	/* Parent .ra-preview-scale-outer uses line-height:0 for image gaps; reset for text layout */
+	line-height: normal;
+}
+
+/* Standalone iframe: same HTML shell as PDF (no Obsidian theme leaking in) */
+.ra-preview-page-iframe {
+	box-sizing: border-box;
+	vertical-align: top;
+}
+
+.ra-preview-modal .ra-preview-scale-inner .ra-paper-frame {
+	line-height: normal;
 }
 
 .ra-preview-controls {
@@ -181,7 +193,8 @@
 }
 
 /* Paged preview: allow scrolling inside the sheet if a slice is slightly overfilled. */
-.ra-preview-modal .ra-paper-frame.ra-preview-paged .ra-page-body {
+.ra-preview-modal .ra-paper-frame.ra-preview-paged .ra-page-body,
+.ra-preview-modal .ra-paper-frame.ra-preview-paged .ra-export-page-body {
 	overflow-y: auto;
 	overflow-x: hidden;
 }

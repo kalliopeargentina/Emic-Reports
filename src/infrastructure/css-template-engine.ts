@@ -543,6 +543,17 @@ ${perType}
 .ra-render-frame .callout .callout-content {
 	padding: ${t.calloutContentPaddingCss} !important;
 	font-size: var(--ra-body-size) !important;
+	/* Foldable callouts ([-]/[+]) render collapsed in DOM; export has no Obsidian JS to expand them */
+	display: block !important;
+	max-height: none !important;
+	height: auto !important;
+	overflow: visible !important;
+	visibility: visible !important;
+	opacity: 1 !important;
+}
+
+.ra-render-frame .callout.is-collapsed .callout-content {
+	padding: ${t.calloutContentPaddingCss} !important;
 }
 
 .ra-render-frame .callout .callout-content > :first-child {
@@ -555,6 +566,24 @@ ${perType}
 
 .ra-render-frame .callout .callout-content p {
 	text-align: inherit !important;
+}
+
+/* In-app preview: beat Obsidian theme rules on .markdown-preview-view .callout (collapsed / folded) */
+.ra-render-frame.markdown-preview-view.markdown-reading-view.markdown-rendered .callout .callout-content {
+	display: block !important;
+	max-height: none !important;
+	height: auto !important;
+	overflow: visible !important;
+	visibility: visible !important;
+	opacity: 1 !important;
+	color: var(--ra-text) !important;
+}
+
+/* Older/alternate DOM: body blocks directly under callout without .callout-content */
+.ra-render-frame .callout > p,
+.ra-render-frame .callout > ul,
+.ra-render-frame .callout > ol {
+	color: var(--ra-text) !important;
 }
 `.trim();
 	}

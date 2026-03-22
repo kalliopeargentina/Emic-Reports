@@ -19,7 +19,10 @@ import {
 	waitForMathLayout,
 } from "./math-export";
 import {
+	clearOffscreenRenderHostStyles,
 	expandDetailsElementsForExport,
+	expandFoldableCalloutsForExport,
+	flattenOpenShadowRootsForExport,
 	normalizeThematicBreakElementsForExport,
 	stripCodeBlockChromeForExport,
 } from "./html-export-sanitize";
@@ -117,7 +120,10 @@ export class HtmlRenderer {
 			}
 			stripCodeBlockChromeForExport(host);
 			normalizeThematicBreakElementsForExport(host);
+			flattenOpenShadowRootsForExport(host);
+			expandFoldableCalloutsForExport(host);
 			expandDetailsElementsForExport(host);
+			clearOffscreenRenderHostStyles(host);
 			return serializeElementHtml(host);
 		} finally {
 			sub.unload();

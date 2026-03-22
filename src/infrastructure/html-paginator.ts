@@ -112,9 +112,8 @@ export function splitCalloutByContentBlocks(originalNode: HTMLElement): HTMLElem
 	return segments;
 }
 
-/** Match Reading / preview modal so block layout (e.g. callouts) measures consistently. */
-const PAGE_BODY_CLASSES =
-	"ra-render-frame ra-page-body markdown-preview-view markdown-reading-view markdown-rendered";
+/** Match preview modal + PDF sheet body (see pdf-print-html); avoid Obsidian markdown-* classes in measure host. */
+const PAGE_BODY_CLASSES = "ra-render-frame ra-page-body ra-export-page-body";
 
 function createDiv(cls: string): HTMLDivElement {
 	const el = document.createElement("div");

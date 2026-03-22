@@ -12,20 +12,13 @@ export interface HtmlPreviewBundle {
 }
 
 /**
- * Builds the full HTML document written for headless/Electron PDF (print sheets + export CSS).
- * Shared with {@link PdfExporterElectron} and PDF smoke tests so tests exercise real output shape.
+ * Shared layout CSS for print sheet + body (PDF and isolated preview iframe).
+ * Keeps preview visually aligned with {@link buildPrintableHtmlDocument}.
  */
-export function buildPrintableHtmlDocument(project: ReportProject, bundle: HtmlPreviewBundle): string {
+export function buildPrintPageLayoutCss(project: ReportProject): string {
 	const page = pageSizeResolver.resolve(project);
-	const pages = paginateHtml(project, bundle.html);
 	const t = mergeStyleTokens(project.styleTemplate.tokens);
-	return `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8" />
-<meta name="referrer" content="no-referrer" />
-<style>${bundle.css}</style>
-<style>
+	return `
 html, body { margin: 0; background: ${t.pageBackgroundColor} !important; }
 .ra-print-sheet {
 	width: ${page.width};
@@ -53,6 +46,56 @@ html, body { margin: 0; background: ${t.pageBackgroundColor} !important; }
 	object-position: center !important;
 	box-sizing: border-box !important;
 }
+`.trim();
+}
+
+/** Avoid breaking out of &lt;script&gt; if user HTML contains literal &lt;/script&gt; (e.g. code samples). */
+export function escapeHtmlForPreviewSrcdoc(html: string): string {
+	return html.replace(/<\/script/gi, "<\\/script");
+}
+
+/**
+ * One printable page in a **standalone** mini-document — same shell as PDF (no Obsidian app CSS).
+ * Used by {@link ReportPreviewModal} so callouts / layout match headless print, not the vault UI.
+ */
+export function buildIsolatedPreviewPageDocument(
+	project: ReportProject,
+	pageInnerHtml: string,
+	exportCss: string,
+): string {
+	const safe = escapeHtmlForPreviewSrcdoc(pageInnerHtml);
+	const layoutCss = buildPrintPageLayoutCss(project);
+	return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="referrer" content="no-referrer" />
+<style>${exportCss}</style>
+<style>${layoutCss}</style>
+</head>
+<body>
+<div class="ra-print-sheet">
+<div class="ra-render-frame ra-export-page-body">${safe}</div>
+</div>
+</body>
+</html>`;
+}
+
+/**
+ * Builds the full HTML document written for headless/Electron PDF (print sheets + export CSS).
+ * Shared with {@link PdfExporterElectron} and PDF smoke tests so tests exercise real output shape.
+ */
+export function buildPrintableHtmlDocument(project: ReportProject, bundle: HtmlPreviewBundle): string {
+	const pages = paginateHtml(project, bundle.html);
+	const layoutCss = buildPrintPageLayoutCss(project);
+	return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="referrer" content="no-referrer" />
+<style>${bundle.css}</style>
+<style>
+${layoutCss}
 </style>
 <script>
 async function waitForAssets() {
