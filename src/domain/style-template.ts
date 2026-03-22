@@ -86,6 +86,23 @@ export interface StyleTokens {
 	preWhiteSpace: PreWhiteSpaceMode;
 	/** Default background for native ==highlight== (no `{color}`). CSS e.g. rgba() or #hex */
 	highlightDefaultBackground: string;
+	/** Border radius for `mark` / ==highlight== in PDF/HTML (px). */
+	highlightBorderRadiusPx: number;
+	/** Padding for `mark` highlights, e.g. `0 0.12em`. */
+	highlightPaddingCss: string;
+
+	/** Colors for fenced-code syntax highlighting in PDF/HTML (GitHub-light–style defaults). */
+	hljsBaseColor: string;
+	hljsCommentColor: string;
+	hljsKeywordColor: string;
+	hljsLiteralColor: string;
+	hljsStringColor: string;
+	hljsTitleColor: string;
+	hljsNameColor: string;
+	hljsDeletionColor: string;
+	hljsAttrColor: string;
+	hljsPunctuationColor: string;
+	hljsPrismVariableColor: string;
 
 	/* --- Callouts (PDF/HTML + DOCX box styling) --- */
 	/** Left accent bar width in px */
@@ -107,6 +124,8 @@ export interface StyleTokens {
 	calloutTitleLetterSpacingEm: number;
 	calloutTitleGapPx: number;
 	calloutIconOpacity: number;
+	/** Callout title icon box size (em). */
+	calloutIconSizeEm: number;
 	/** Inner padding for DOCX callout cell (pt); approximates CSS padding */
 	calloutCellPaddingPt: number;
 	/** 0–1 mix toward accent for DOCX outer border (non-accent edges) */
@@ -126,6 +145,10 @@ export interface StyleTokens {
 	imageMarginTop: number;
 	imageMarginBottom: number;
 	imageMarginHorizontal: string;
+	/** Margins for rasterized inline math images, e.g. `0 0.1em`. */
+	imageMathInlineMarginCss: string;
+	/** Margins for display math PNGs, e.g. `0.75em auto`. */
+	imageMathDisplayMarginCss: string;
 	captionFontSize: number;
 	captionMarginBottom: number;
 
@@ -149,6 +172,8 @@ export interface StyleTokens {
 	listBulletOffset: string;
 	listBulletTopOffset: string;
 	listIndentPerLevel: number;
+	/** Em size for `::before` bullet vs list text when using custom bullets (e.g. 1.1). */
+	listBulletRelativeFontSize: number;
 
 	/* --- Blockquote --- */
 	blockquoteTextAlign: TextAlignOption;
@@ -164,12 +189,38 @@ export interface StyleTokens {
 	blockquoteNestedIndentPt: number;
 	/** Left vertical rule in HTML/PDF/DOCX; off = indent and typography only. */
 	blockquoteShowVerticalBar: boolean;
+	/** Inner padding for `blockquote:not(.callout)`, e.g. `0.35em 0.65em 0.35em 0.95em`. */
+	blockquoteInnerPaddingCss: string;
+	/** Nested blockquote margin-top (em or px). */
+	blockquoteNestedMarginTop: string;
+	/** Nested blockquote margin-bottom. */
+	blockquoteNestedMarginBottom: string;
+	/** Nested blockquote extra padding-left. */
+	blockquoteNestedPaddingLeft: string;
+	/** Nested bar: mix bar color toward white (0–100). */
+	blockquoteNestedBarMixPercent: number;
+	/** Gap between direct child paragraphs in blockquotes (em). */
+	blockquoteParagraphGapEm: number;
+
+	/* --- Export-only blocks (HTML/PDF) --- */
+	/** Vertical margin for expanded `<details>` (`.ra-export-details`), e.g. `0.65em 0`. */
+	exportDetailsMarginCss: string;
+	/** Bottom margin for summary line in expanded details. */
+	exportDetailsSummaryMarginBottom: string;
+
+	/* --- Horizontal rule (print) --- */
+	/** Visible top border color for `hr` when not forcing page break (screen); print uses page break. */
+	hrBorderColor: string;
 
 	/* --- Mermaid --- */
 	mermaidColor: string;
 
 	/* --- Cover and DOCX spacing --- */
 	coverBackgroundOpacity: number;
+	/** Space below cover title (px). */
+	coverTitleMarginBottomPx: number;
+	/** Space below cover subtitle (px). */
+	coverSubtitleMarginBottomPx: number;
 	codeBlockSpacingBefore: number;
 	codeBlockSpacingAfter: number;
 }
@@ -265,6 +316,20 @@ export const DEFAULT_STYLE_TOKENS: StyleTokens = {
 	preLineHeight: 1,
 	preWhiteSpace: "pre-wrap",
 	highlightDefaultBackground: "rgba(255, 235, 59, 0.45)",
+	highlightBorderRadiusPx: 2,
+	highlightPaddingCss: "0 0.12em",
+
+	hljsBaseColor: "#24292e",
+	hljsCommentColor: "#6a737d",
+	hljsKeywordColor: "#d73a49",
+	hljsLiteralColor: "#005cc5",
+	hljsStringColor: "#032f62",
+	hljsTitleColor: "#6f42c1",
+	hljsNameColor: "#22863a",
+	hljsDeletionColor: "#b31d28",
+	hljsAttrColor: "#005cc5",
+	hljsPunctuationColor: "#24292e",
+	hljsPrismVariableColor: "#e36209",
 
 	calloutBorderLeftWidthPx: 4,
 	calloutBorderRadiusPx: 6,
@@ -279,6 +344,7 @@ export const DEFAULT_STYLE_TOKENS: StyleTokens = {
 	calloutTitleLetterSpacingEm: 0.04,
 	calloutTitleGapPx: 8,
 	calloutIconOpacity: 0.85,
+	calloutIconSizeEm: 1.1,
 	calloutCellPaddingPt: 8,
 	calloutDocxFrameBorderMix: 0.35,
 
@@ -290,6 +356,8 @@ export const DEFAULT_STYLE_TOKENS: StyleTokens = {
 	imageMarginTop: 10,
 	imageMarginBottom: 5,
 	imageMarginHorizontal: "auto",
+	imageMathInlineMarginCss: "0 0.1em",
+	imageMathDisplayMarginCss: "0.75em auto",
 	captionFontSize: 8,
 	captionMarginBottom: 16,
 
@@ -311,6 +379,7 @@ export const DEFAULT_STYLE_TOKENS: StyleTokens = {
 	listBulletOffset: "-1.15em",
 	listBulletTopOffset: "-0.05em",
 	listIndentPerLevel: 14,
+	listBulletRelativeFontSize: 1.1,
 
 	blockquoteTextAlign: "left",
 	blockquoteFontSize: 10,
@@ -320,10 +389,23 @@ export const DEFAULT_STYLE_TOKENS: StyleTokens = {
 	blockquoteItalic: true,
 	blockquoteNestedIndentPt: 14,
 	blockquoteShowVerticalBar: true,
+	blockquoteInnerPaddingCss: "0.35em 0.65em 0.35em 0.95em",
+	blockquoteNestedMarginTop: "0.45em",
+	blockquoteNestedMarginBottom: "0.3em",
+	blockquoteNestedPaddingLeft: "0.85em",
+	blockquoteNestedBarMixPercent: 78,
+	blockquoteParagraphGapEm: 0.22,
+
+	exportDetailsMarginCss: "0.65em 0",
+	exportDetailsSummaryMarginBottom: "0.35em",
+
+	hrBorderColor: "#d3d3d3",
 
 	mermaidColor: "#000000",
 
 	coverBackgroundOpacity: 0.2,
+	coverTitleMarginBottomPx: 8,
+	coverSubtitleMarginBottomPx: 6,
 	codeBlockSpacingBefore: 6,
 	codeBlockSpacingAfter: 6,
 };
@@ -379,8 +461,8 @@ export function normalizeStyleTemplate(template: StyleTemplate): StyleTemplate {
 export function createAcademicExportTemplate(): StyleTemplate {
 	return {
 		id: "academic-export-v1",
-		name: "Academic export v1",
-		version: 5,
+		name: "Default Template",
+		version: 6,
 		basePreset: "academic-export-v1",
 		tokens: { ...DEFAULT_STYLE_TOKENS },
 		printRules: { ...DEFAULT_PRINT_RULES },

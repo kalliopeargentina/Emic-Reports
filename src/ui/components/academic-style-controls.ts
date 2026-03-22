@@ -392,7 +392,7 @@ export function renderAcademicStyleControls(
 				.setDynamicTooltip()
 				.onChange((v) => patchTokens({ preLineHeight: v })),
 		);
-		new Setting(container)
+	new Setting(container)
 		.setName("Pre white space")
 		.setDesc("How fenced code blocks wrap in PDF/HTML export.")
 		.addDropdown((dropdown) =>
@@ -412,6 +412,22 @@ export function renderAcademicStyleControls(
 				.onChange((v) => patchTokens({ highlightDefaultBackground: v })),
 		);
 	new Setting(container)
+		.setName("Highlight border radius (px)")
+		.setDesc("Applies to ==highlight== in export HTML/PDF.")
+		.addSlider((slider) =>
+			slider
+				.setLimits(0, 12, 1)
+				.setValue(t.highlightBorderRadiusPx)
+				.setDynamicTooltip()
+				.onChange((v) => patchTokens({ highlightBorderRadiusPx: v })),
+		);
+	new Setting(container)
+		.setName("Highlight padding (CSS)")
+		.setDesc("Padding inside mark highlights, for example 0 0.12em.")
+		.addText((text) =>
+			text.setPlaceholder("0 0.12em").setValue(t.highlightPaddingCss).onChange((v) => patchTokens({ highlightPaddingCss: v })),
+		);
+	new Setting(container)
 		.setName("Code block spacing before (pt)")
 		.addSlider((slider) =>
 			slider
@@ -428,6 +444,62 @@ export function renderAcademicStyleControls(
 				.setValue(t.codeBlockSpacingAfter)
 				.setDynamicTooltip()
 				.onChange((v) => patchTokens({ codeBlockSpacingAfter: v })),
+		);
+
+	sectionHeading(container, "Syntax highlighting (export HTML/PDF)");
+	new Setting(container)
+		.setName("Syntax highlight base color")
+		.setDesc("Default text color inside fenced code blocks.")
+		.addColorPicker((picker) => picker.setValue(t.hljsBaseColor).onChange((v) => patchTokens({ hljsBaseColor: v })));
+	new Setting(container)
+		.setName("Syntax highlight comment / quote")
+		.addColorPicker((picker) =>
+			picker.setValue(t.hljsCommentColor).onChange((v) => patchTokens({ hljsCommentColor: v })),
+		);
+	new Setting(container)
+		.setName("Syntax highlight keyword")
+		.addColorPicker((picker) =>
+			picker.setValue(t.hljsKeywordColor).onChange((v) => patchTokens({ hljsKeywordColor: v })),
+		);
+	new Setting(container)
+		.setName("Syntax highlight literal (number, variable, …)")
+		.addColorPicker((picker) =>
+			picker.setValue(t.hljsLiteralColor).onChange((v) => patchTokens({ hljsLiteralColor: v })),
+		);
+	new Setting(container)
+		.setName("Syntax highlight string")
+		.addColorPicker((picker) =>
+			picker.setValue(t.hljsStringColor).onChange((v) => patchTokens({ hljsStringColor: v })),
+		);
+	new Setting(container)
+		.setName("Syntax highlight title / class / type")
+		.addColorPicker((picker) =>
+			picker.setValue(t.hljsTitleColor).onChange((v) => patchTokens({ hljsTitleColor: v })),
+		);
+	new Setting(container)
+		.setName("Syntax highlight name (symbol, tag, …)")
+		.addColorPicker((picker) =>
+			picker.setValue(t.hljsNameColor).onChange((v) => patchTokens({ hljsNameColor: v })),
+		);
+	new Setting(container)
+		.setName("Syntax highlight deletion")
+		.addColorPicker((picker) =>
+			picker.setValue(t.hljsDeletionColor).onChange((v) => patchTokens({ hljsDeletionColor: v })),
+		);
+	new Setting(container)
+		.setName("Syntax highlight attribute / meta")
+		.addColorPicker((picker) =>
+			picker.setValue(t.hljsAttrColor).onChange((v) => patchTokens({ hljsAttrColor: v })),
+		);
+	new Setting(container)
+		.setName("Syntax highlight punctuation / params")
+		.addColorPicker((picker) =>
+			picker.setValue(t.hljsPunctuationColor).onChange((v) => patchTokens({ hljsPunctuationColor: v })),
+		);
+	new Setting(container)
+		.setName("Prism variable color (export)")
+		.addColorPicker((picker) =>
+			picker.setValue(t.hljsPrismVariableColor).onChange((v) => patchTokens({ hljsPrismVariableColor: v })),
 		);
 
 	sectionHeading(container, "Callouts");
@@ -545,6 +617,16 @@ export function renderAcademicStyleControls(
 				.onChange((v) => patchTokens({ calloutIconOpacity: v })),
 		);
 	new Setting(container)
+		.setName("Icon size (em)")
+		.setDesc("Width and height of the callout title icon.")
+		.addSlider((slider) =>
+			slider
+				.setLimits(0.8, 1.6, 0.05)
+				.setValue(t.calloutIconSizeEm)
+				.setDynamicTooltip()
+				.onChange((v) => patchTokens({ calloutIconSizeEm: v })),
+		);
+	new Setting(container)
 		.setName("Callout inner padding — DOCX (pt)")
 		.setDesc("Approximates padding inside the Word callout box.")
 		.addSlider((slider) =>
@@ -624,6 +706,24 @@ export function renderAcademicStyleControls(
 			text.setPlaceholder("auto").setValue(t.imageMarginHorizontal).onChange((v) => patchTokens({ imageMarginHorizontal: v })),
 		);
 	new Setting(container)
+		.setName("Raster math inline margin (CSS)")
+		.setDesc("Margins for inline formula images, for example 0 0.1em.")
+		.addText((text) =>
+			text
+				.setPlaceholder("0 0.1em")
+				.setValue(t.imageMathInlineMarginCss)
+				.onChange((v) => patchTokens({ imageMathInlineMarginCss: v })),
+		);
+	new Setting(container)
+		.setName("Raster math display margin (CSS)")
+		.setDesc("Margins for block/display formula images, for example 0.75em auto.")
+		.addText((text) =>
+			text
+				.setPlaceholder("0.75em auto")
+				.setValue(t.imageMathDisplayMarginCss)
+				.onChange((v) => patchTokens({ imageMathDisplayMarginCss: v })),
+		);
+	new Setting(container)
 		.setName("Caption font size (pt)")
 		.addSlider((slider) =>
 			slider
@@ -701,7 +801,7 @@ export function renderAcademicStyleControls(
 				.onChange((v) => patchTokens({ listLineHeight: v })),
 		);
 	new Setting(container)
-		.setName("Custom bullet (academic style)")
+		.setName("Custom bullet style")
 		.addToggle((toggle) =>
 			toggle.setValue(t.listCustomBullet).onChange((v) => patchTokens({ listCustomBullet: v })),
 		);
@@ -735,6 +835,16 @@ export function renderAcademicStyleControls(
 				.setValue(t.listIndentPerLevel)
 				.setDynamicTooltip()
 				.onChange((v) => patchTokens({ listIndentPerLevel: v })),
+		);
+	new Setting(container)
+		.setName("Custom bullet size (× list text)")
+		.setDesc("Font size of the ::before bullet when custom bullets are on.")
+		.addSlider((slider) =>
+			slider
+				.setLimits(0.9, 1.4, 0.05)
+				.setValue(t.listBulletRelativeFontSize)
+				.setDynamicTooltip()
+				.onChange((v) => patchTokens({ listBulletRelativeFontSize: v })),
 		);
 
 	sectionHeading(container, "Blockquotes");
@@ -791,6 +901,49 @@ export function renderAcademicStyleControls(
 				.onChange((v) => patchTokens({ blockquoteBarWidthPx: v })),
 		);
 	new Setting(container)
+		.setName("Inner padding (CSS)")
+		.setDesc("Padding inside blockquotes (not callouts), for example 0.35em 0.65em 0.35em 0.95em.")
+		.addText((text) =>
+			text.setValue(t.blockquoteInnerPaddingCss).onChange((v) => patchTokens({ blockquoteInnerPaddingCss: v })),
+		);
+	new Setting(container)
+		.setName("Nested blockquote margin top")
+		.addText((text) =>
+			text.setPlaceholder("0.45em").setValue(t.blockquoteNestedMarginTop).onChange((v) => patchTokens({ blockquoteNestedMarginTop: v })),
+		);
+	new Setting(container)
+		.setName("Nested blockquote margin bottom")
+		.addText((text) =>
+			text
+				.setPlaceholder("0.3em")
+				.setValue(t.blockquoteNestedMarginBottom)
+				.onChange((v) => patchTokens({ blockquoteNestedMarginBottom: v })),
+		);
+	new Setting(container)
+		.setName("Nested blockquote padding left")
+		.addText((text) =>
+			text.setPlaceholder("0.85em").setValue(t.blockquoteNestedPaddingLeft).onChange((v) => patchTokens({ blockquoteNestedPaddingLeft: v })),
+		);
+	new Setting(container)
+		.setName("Nested side bar tint (%)")
+		.setDesc("Mix blockquote bar color toward white for nested quotes.")
+		.addSlider((slider) =>
+			slider
+				.setLimits(0, 100, 1)
+				.setValue(t.blockquoteNestedBarMixPercent)
+				.setDynamicTooltip()
+				.onChange((v) => patchTokens({ blockquoteNestedBarMixPercent: v })),
+		);
+	new Setting(container)
+		.setName("Paragraph gap in blockquote (em)")
+		.addSlider((slider) =>
+			slider
+				.setLimits(0, 0.6, 0.02)
+				.setValue(t.blockquoteParagraphGapEm)
+				.setDynamicTooltip()
+				.onChange((v) => patchTokens({ blockquoteParagraphGapEm: v })),
+		);
+	new Setting(container)
 		.setName("Nested quote indent (pt)")
 		.setDesc("Extra left indent per `>` level in Word export.")
 		.addSlider((slider) =>
@@ -810,6 +963,23 @@ export function renderAcademicStyleControls(
 				"Rules use .ra-render-frame blockquote:not(.callout). Inspect preview or exported HTML :root for values.",
 		);
 
+	sectionHeading(container, "Expanded details (export HTML/PDF)");
+	new Setting(container)
+		.setName("Details block margin (CSS)")
+		.setDesc("Margin around expanded <details> blocks, for example 0.65em 0.")
+		.addText((text) =>
+			text.setValue(t.exportDetailsMarginCss).onChange((v) => patchTokens({ exportDetailsMarginCss: v })),
+		);
+	new Setting(container)
+		.setName("Summary line bottom margin")
+		.setDesc("Bottom margin for the summary line, for example 0.35em.")
+		.addText((text) =>
+			text
+				.setPlaceholder("0.35em")
+				.setValue(t.exportDetailsSummaryMarginBottom)
+				.onChange((v) => patchTokens({ exportDetailsSummaryMarginBottom: v })),
+		);
+
 	sectionHeading(container, "Diagrams");
 	new Setting(container)
 		.setName("Mermaid diagram color")
@@ -823,17 +993,21 @@ export function renderAcademicStyleControls(
 		.addDropdown((dropdown) =>
 			dropdown
 				.addOption("none", "None")
-				.addOption("h2-h4", "Levels 2 to 4 (academic)")
+				.addOption("h2-h4", "Levels 2 to 4")
 				.addOption("h1-h6", "Levels 1 to 6")
 				.setValue(pr.headingNumbering)
 				.onChange((v) => patchPrint({ headingNumbering: v as PrintRules["headingNumbering"] })),
 		);
 	new Setting(container)
 		.setName("Horizontal rule as page break")
-		.setDesc("Match academic export: a horizontal rule starts a new page.")
+		.setDesc("When on, a horizontal rule starts a new page in print/PDF.")
 		.addToggle((toggle) =>
 			toggle.setValue(pr.hrAsPageBreak).onChange((v) => patchPrint({ hrAsPageBreak: v })),
 		);
+	new Setting(container)
+		.setName("Horizontal rule border color")
+		.setDesc("Visible top border color for hr on screen (print may still use page breaks).")
+		.addColorPicker((picker) => picker.setValue(t.hrBorderColor).onChange((v) => patchTokens({ hrBorderColor: v })));
 	new Setting(container)
 		.setName("Table page-break inside")
 		.addDropdown((dropdown) =>
@@ -871,6 +1045,24 @@ export function renderAcademicStyleControls(
 				.setValue(t.coverBackgroundOpacity)
 				.setDynamicTooltip()
 				.onChange((v) => patchTokens({ coverBackgroundOpacity: v })),
+		);
+	new Setting(container)
+		.setName("Cover title margin bottom (px)")
+		.addSlider((slider) =>
+			slider
+				.setLimits(0, 32, 1)
+				.setValue(t.coverTitleMarginBottomPx)
+				.setDynamicTooltip()
+				.onChange((v) => patchTokens({ coverTitleMarginBottomPx: v })),
+		);
+	new Setting(container)
+		.setName("Cover subtitle margin bottom (px)")
+		.addSlider((slider) =>
+			slider
+				.setLimits(0, 32, 1)
+				.setValue(t.coverSubtitleMarginBottomPx)
+				.setDynamicTooltip()
+				.onChange((v) => patchTokens({ coverSubtitleMarginBottomPx: v })),
 		);
 	renderReportBackgroundPicker(container, state.backgroundImage, (next) => {
 		state.backgroundImage = next;

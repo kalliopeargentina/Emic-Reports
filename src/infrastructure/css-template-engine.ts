@@ -27,7 +27,7 @@ export class CssTemplateEngine {
 				: `font-size: ${t.captionFontSize}pt;`;
 
 		const calloutCss = this.buildCalloutCss(t);
-		const exportSyntaxCss = `${buildExportHljsCss()}\n${buildExportCodeBlockChromeHideCss()}`;
+		const exportSyntaxCss = `${buildExportHljsCss(t)}\n${buildExportCodeBlockChromeHideCss()}`;
 
 		const bqBarWidthCss = t.blockquoteShowVerticalBar ? `${t.blockquoteBarWidthPx}px` : "0px";
 		const bqNestedBarWidthPx = Math.max(2, t.blockquoteBarWidthPx - 1);
@@ -44,7 +44,7 @@ export class CssTemplateEngine {
 	position: absolute !important;
 	left: ${t.listBulletOffset} !important;
 	top: ${t.listBulletTopOffset} !important;
-	font-size: 1.1em !important;
+	font-size: ${t.listBulletRelativeFontSize}em !important;
 }`
 			: "";
 
@@ -209,8 +209,8 @@ ${exportSyntaxCss}
 
 .ra-render-frame mark {
 	background: ${t.highlightDefaultBackground} !important;
-	border-radius: 2px !important;
-	padding: 0 0.12em !important;
+	border-radius: ${t.highlightBorderRadiusPx}px !important;
+	padding: ${t.highlightPaddingCss} !important;
 	color: var(--ra-text) !important;
 	-webkit-print-color-adjust: exact !important;
 	print-color-adjust: exact !important;
@@ -250,14 +250,14 @@ ${exportSyntaxCss}
 .ra-render-frame img.ra-math-export-img--inline {
 	display: inline-block !important;
 	vertical-align: middle !important;
-	margin: 0 0.1em !important;
+	margin: ${t.imageMathInlineMarginCss} !important;
 	max-width: 100% !important;
 	page-break-inside: avoid !important;
 }
 
 .ra-render-frame img.ra-math-export-img--display {
 	display: block !important;
-	margin: 0.75em auto !important;
+	margin: ${t.imageMathDisplayMarginCss} !important;
 	max-width: 100% !important;
 	page-break-inside: avoid !important;
 	page-break-after: avoid !important;
@@ -311,17 +311,17 @@ ${listBulletCss}
 
 .ra-render-frame hr {
 	border: none !important;
-	border-top: 0 solid lightgray !important;
+	border-top: 0 solid ${t.hrBorderColor} !important;
 	page-break-after: ${hrBreak} !important;
 }
 
 /* Expanded HTML <details> (export unwraps to .ra-export-details + summary paragraph) */
 .ra-render-frame .ra-export-details {
-	margin: 0.65em 0 !important;
+	margin: ${t.exportDetailsMarginCss} !important;
 }
 .ra-render-frame .ra-export-details-summary {
 	font-weight: bold !important;
-	margin: 0 0 0.35em 0 !important;
+	margin: 0 0 ${t.exportDetailsSummaryMarginBottom} 0 !important;
 }
 
 .ra-render-frame blockquote:not(.callout) {
@@ -331,23 +331,23 @@ ${listBulletCss}
 	color: var(--ra-text) !important;
 	border: none !important;
 	border-left: ${t.blockquoteShowVerticalBar ? "var(--ra-blockquote-bar-width) solid var(--ra-blockquote-bar)" : "none"} !important;
-	padding: 0.35em 0.65em 0.35em 0.95em !important;
+	padding: ${t.blockquoteInnerPaddingCss} !important;
 	margin: var(--ra-blockquote-margin-y) 0 !important;
 	font-style: var(--ra-blockquote-font-style) !important;
 	box-sizing: border-box !important;
 }
 .ra-render-frame blockquote:not(.callout) blockquote:not(.callout) {
-	margin-top: 0.45em !important;
-	margin-bottom: 0.3em !important;
+	margin-top: ${t.blockquoteNestedMarginTop} !important;
+	margin-bottom: ${t.blockquoteNestedMarginBottom} !important;
 	margin-left: 0 !important;
 	margin-right: 0 !important;
-	padding-left: 0.85em !important;
+	padding-left: ${t.blockquoteNestedPaddingLeft} !important;
 	${t.blockquoteShowVerticalBar
-		? `border-left: var(--ra-blockquote-nested-bar-width) solid color-mix(in srgb, ${t.blockquoteBarColor} 78%, #ffffff) !important;`
+		? `border-left: var(--ra-blockquote-nested-bar-width) solid color-mix(in srgb, ${t.blockquoteBarColor} ${t.blockquoteNestedBarMixPercent}%, #ffffff) !important;`
 		: "border-left: none !important;"}
 }
 .ra-render-frame blockquote:not(.callout) > p {
-	margin: 0.22em 0 !important;
+	margin: ${t.blockquoteParagraphGapEm}em 0 !important;
 }
 .ra-render-frame blockquote:not(.callout) > p:first-child {
 	margin-top: 0 !important;
@@ -391,12 +391,12 @@ ${calloutCss}
 
 .ra-cover-title {
 	font-size: ${t.h1Size}pt;
-	margin-bottom: 8px;
+	margin-bottom: ${t.coverTitleMarginBottomPx}px;
 }
 
 .ra-cover-subtitle {
 	font-size: ${t.h3Size}pt;
-	margin-bottom: 6px;
+	margin-bottom: ${t.coverSubtitleMarginBottomPx}px;
 }
 
 .ra-cover-authors {
@@ -530,8 +530,8 @@ ${perType}
 
 .ra-render-frame .callout .callout-icon {
 	flex-shrink: 0 !important;
-	width: 1.1em !important;
-	height: 1.1em !important;
+	width: ${t.calloutIconSizeEm}em !important;
+	height: ${t.calloutIconSizeEm}em !important;
 	opacity: ${t.calloutIconOpacity} !important;
 }
 
