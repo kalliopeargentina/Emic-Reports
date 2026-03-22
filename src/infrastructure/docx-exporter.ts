@@ -101,6 +101,87 @@ function summarizeSvgFeatures(svgBytes: Uint8Array): string {
 	}
 }
 
+/**
+ * Split Markdown image destination into URL/path and optional quoted title
+ * (e.g. `Attachments/x.jpg "546|372x269"` from {@link LinkResolver} wikilink images).
+ */
+function parseMarkdownImageDestination(raw: string): { path: string; title?: string } {
+	const s = raw.trim();
+	if (!s) return { path: "" };
+
+	if (s.startsWith("<") && s.endsWith(">")) {
+		return { path: s.slice(1, -1).trim() };
+	}
+
+	const dquote = /\s+"([^"]*)"\s*$/.exec(s);
+	if (dquote) {
+		return {
+			path: s.slice(0, dquote.index).trim(),
+			title: dquote[1]?.trim() ?? "",
+		};
+	}
+
+	const squote = /\s+'([^']*)'\s*$/.exec(s);
+	if (squote) {
+		return {
+			path: s.slice(0, squote.index).trim(),
+			title: squote[1]?.trim() ?? "",
+		};
+	}
+
+	return { path: s };
+}
+
+function decodeUriSafe(value: string): string {
+	try {
+		return decodeURIComponent(value);
+	} catch {
+		return value;
+	}
+}
+
+/** Display size (px) for DOCX {@link ImageRun} from alt text or Markdown title (Obsidian wikilink size). */
+function docxImageDisplaySizePx(alt: string, title?: string): { width: number; height: number } {
+	const a = alt.trim();
+	let m = /(\d{2,4})x(\d{2,4})$/.exec(a);
+	if (m) {
+		return { width: Number(m[1]), height: Number(m[2]) };
+	}
+	const t = title?.trim() ?? "";
+	m = /^\d+\|(\d+)x(\d+)$/.exec(t);
+	if (m) {
+		return { width: Number(m[1]), height: Number(m[2]) };
+	}
+	m = /(\d{2,4})x(\d{2,4})/.exec(t);
+	if (m) {
+		return { width: Number(m[1]), height: Number(m[2]) };
+	}
+	return { width: 560, height: 320 };
+}
+
+/** Rough intrinsic pixel size for rasterizing SVG (viewBox / width / height). */
+function svgIntrinsicDimensionsFromMarkup(svgBytes: Uint8Array): { w: number; h: number } {
+	const head = new TextDecoder("utf-8").decode(svgBytes.slice(0, Math.min(svgBytes.byteLength, 16384)));
+	const vb = /\bviewBox\s*=\s*["']([^"']+)["']/i.exec(head);
+	if (vb) {
+		const parts = (vb[1] ?? "").trim().split(/\s+/).filter(Boolean);
+		if (parts.length >= 4) {
+			const w = Math.abs(Number(parts[2]));
+			const h = Math.abs(Number(parts[3]));
+			if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) {
+				return { w: Math.round(w), h: Math.round(h) };
+			}
+		}
+	}
+	const wm = /\bwidth\s*=\s*["']([^"'%]+)/i.exec(head);
+	const hm = /\bheight\s*=\s*["']([^"'%]+)/i.exec(head);
+	let w = wm ? parseFloat(wm[1] ?? "") : NaN;
+	let h = hm ? parseFloat(hm[1] ?? "") : NaN;
+	if (!Number.isFinite(w) || w <= 0) w = 512;
+	if (!Number.isFinite(h) || h <= 0) h = 512;
+	return { w: Math.round(w), h: Math.round(h) };
+}
+
 function parseRgbTriplet(rgb: string): [number, number, number] {
 	const parts = rgb.split(",").map((p) => Number(p.trim()));
 	const r = parts[0] ?? 68;
@@ -1292,28 +1373,72 @@ export class DocxExporter {
 	}
 
 	private async createImageParagraph(srcRaw: string, altRaw: string, tokens: StyleTokens): Promise<Paragraph> {
-		const source = decodeURIComponent(srcRaw.trim());
+		const decodedRaw = decodeUriSafe(srcRaw.trim());
+		const { path: pathPart, title } = parseMarkdownImageDestination(decodedRaw);
+		const path = decodeUriSafe(pathPart.trim());
 		const alt = altRaw.trim();
-		const sizeMatch = /(\d{2,4})x(\d{2,4})$/.exec(alt);
-		const width = Number(sizeMatch?.[1] ?? 560);
-		const height = Number(sizeMatch?.[2] ?? 320);
-		const imageType = this.resolveImageType(source);
-		if (!imageType || imageType === "svg") {
+		const { width, height } = docxImageDisplaySizePx(alt, title);
+
+		const imageType = this.resolveImageType(path);
+		if (!imageType) {
 			return new Paragraph({
 				children: [
 					new TextRun({
-						text: `[Image format not supported for DOCX embed: ${source}]`,
+						text: `[Image format not supported for DOCX embed: ${path}]`,
 						color: this.toDocxColor(tokens.colorMuted),
 					}),
 				],
 				alignment: AlignmentType.CENTER,
 			});
 		}
-		const bin = await this.tryLoadImageBytes(source);
+
+		const bin = await this.tryLoadImageBytes(path);
 		if (!bin) {
 			return new Paragraph({
-				children: [new TextRun({ text: `[Image not found: ${source}]`, color: this.toDocxColor(tokens.colorMuted) })],
+				children: [
+					new TextRun({
+						text: `[Image not found: ${path}]`,
+						color: this.toDocxColor(tokens.colorMuted),
+					}),
+				],
 				alignment: AlignmentType.CENTER,
+			});
+		}
+
+		if (imageType === "svg") {
+			const svgBytes = contiguousUint8Array(new Uint8Array(bin));
+			let { w: rw, h: rh } = svgIntrinsicDimensionsFromMarkup(svgBytes);
+			const maxDim = 1600;
+			if (rw > maxDim || rh > maxDim) {
+				const s = maxDim / Math.max(rw, rh);
+				rw = Math.max(1, Math.round(rw * s));
+				rh = Math.max(1, Math.round(rh * s));
+			}
+			const png = await this.rasterizeSvgBytesToPng(svgBytes, rw, rh, false);
+			if (!png || !isAcceptableDiagramPngRelaxed(png)) {
+				return new Paragraph({
+					children: [
+						new TextRun({
+							text: `[SVG could not be rasterized for DOCX: ${path}]`,
+							color: this.toDocxColor(tokens.colorMuted),
+						}),
+					],
+					alignment: AlignmentType.CENTER,
+				});
+			}
+			return new Paragraph({
+				children: [
+					new ImageRun({
+						data: png,
+						type: "png",
+						transformation: { width, height },
+					}),
+				],
+				alignment: AlignmentType.CENTER,
+				spacing: {
+					before: this.ptToTwips(tokens.imageMarginTop),
+					after: this.ptToTwips(tokens.imageMarginBottom),
+				},
 			});
 		}
 
@@ -1405,7 +1530,8 @@ export class DocxExporter {
 	private resolveImageType(
 		source: string,
 	): "png" | "jpg" | "gif" | "bmp" | "svg" | undefined {
-		const lower = source.toLowerCase();
+		const base = (source.split(/[?#]/)[0] ?? source).trim();
+		const lower = base.toLowerCase();
 		if (lower.endsWith(".png")) return "png";
 		if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "jpg";
 		if (lower.endsWith(".gif")) return "gif";
