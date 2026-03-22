@@ -164,8 +164,11 @@ export function highlightCodeToDocxRuns(
 			pushTextWithBreaks(node.textContent ?? "", st);
 			return;
 		}
-		if (node instanceof HTMLElement) {
-			const next = mergeHljsStyle(node.className?.toString() ?? "", st);
+		/* hljs emits <span> (HTML); SVG/math nodes must still recurse (not only HTMLElement). */
+		if (node.nodeType === Node.ELEMENT_NODE) {
+			const el = node as Element;
+			const cls = el.getAttribute("class") ?? "";
+			const next = mergeHljsStyle(cls, st);
 			for (const ch of Array.from(node.childNodes)) {
 				visit(ch, next);
 			}

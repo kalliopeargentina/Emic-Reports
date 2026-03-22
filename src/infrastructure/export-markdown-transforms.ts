@@ -137,9 +137,98 @@ function expandHashtagsOutsideInlineCode(line: string, tagRe: RegExp): string {
 		.join("");
 }
 
+function decodeBasicHtmlEntities(s: string): string {
+	return s
+		.replace(/&nbsp;/g, "\u00a0")
+		.replace(/&lt;/g, "<")
+		.replace(/&gt;/g, ">")
+		.replace(/&amp;/g, "&");
+}
+
+function stripHtmlTagsLoose(s: string): string {
+	return s.replace(/<[^>]+>/g, "");
+}
+
+/**
+ * Turn `<details><summary>…</summary>…</details>` into plain Markdown (bold summary + body) so
+ * DOCX and HTML/PDF never emit disclosure UI or raw tags. Skips content inside fenced code blocks.
+ */
+export function expandDetailsBlocksInMarkdown(markdown: string): string {
+	if (!/<details/i.test(markdown)) return markdown;
+	const parts = markdown.split(/(```[\s\S]*?```|~~~[\s\S]*?~~~)/g);
+	for (let i = 0; i < parts.length; i += 2) {
+		const chunk = parts[i];
+		if (chunk) parts[i] = replaceDetailsBlocksInChunk(chunk);
+	}
+	return parts.join("");
+}
+
+/**
+ * Avoid treating `<details>` inside inline code `"…"` or `'…'` as HTML (docs / quoted examples).
+ */
+/** Placeholders must not contain `<...>` or stripHtmlTagsLoose will delete them (e.g. `<RA_MSK_0>`). */
+function maskPlaceholder(id: number): string {
+	return `\uE000RA_MSK_${id}\uE001`;
+}
+
+function maskSpansForDetailsTransform(chunk: string): { text: string; parts: string[] } {
+	const parts: string[] = [];
+	const push = (raw: string): string => {
+		const id = parts.length;
+		parts.push(raw);
+		return maskPlaceholder(id);
+	};
+	let s = chunk;
+	s = s.replace(/``([\s\S]*?)``/g, (m) => push(m));
+	s = s.replace(/`([^`\n]*)`/g, (m) => push(m));
+	s = s.replace(/"((?:[^"\\]|\\.)*)"/g, (m) => push(m));
+	s = s.replace(/'<[^']*>'/g, (m) => push(m));
+	return { text: s, parts };
+}
+
+function unmaskSpans(text: string, parts: string[]): string {
+	return text.replace(/\uE000RA_MSK_(\d+)\uE001/g, (_, i) => parts[Number(i)] ?? "");
+}
+
+function replaceDetailsBlocksInChunk(chunk: string): string {
+	const { text, parts } = maskSpansForDetailsTransform(chunk);
+	const replaced = text.replace(/<details[^>]*>([\s\S]*?)<\/details>/gi, (_full, inner: string) =>
+		expandDetailsInnerMarkdown(inner),
+	);
+	return unmaskSpans(replaced, parts);
+}
+
+/**
+ * Expand inner HTML of a `<details>` block to markdown.
+ * `inner` is already masked by {@link maskSpansForDetailsTransform} on the outer chunk (inline
+ * `` `code` ``, quotes, etc.) — do not mask again here or placeholder ids collide with the outer
+ * `unmaskSpans` and corrupt spans like `` `<details>` ``.
+ */
+function expandDetailsInnerMarkdown(inner: string): string {
+	let body = inner;
+	const sm = /<summary[^>]*>([\s\S]*?)<\/summary>/i.exec(body);
+	let prefix = "";
+	if (sm) {
+		const sumRaw = sm[1] ?? "";
+		let sumOut = decodeBasicHtmlEntities(stripHtmlTagsLoose(sumRaw)).trim();
+		if (sumOut) prefix = `**${sumOut}**\n\n`;
+		body = body.replace(/<summary[^>]*>[\s\S]*?<\/summary>/i, "");
+	}
+	let work = body
+		.replace(/<\/p>\s*<p[^>]*>/gi, "\n\n")
+		.replace(/<p[^>]*>/gi, "")
+		.replace(/<\/p>/gi, "\n")
+		.replace(/<br\s*\/?>/gi, "\n")
+		.replace(/<div[^>]*>/gi, "")
+		.replace(/<\/div>/gi, "\n");
+	work = decodeBasicHtmlEntities(stripHtmlTagsLoose(work));
+	return `${prefix}${work.trim()}\n\n`;
+}
+
 /** Apply all export-time transforms (single entry point). */
 export function applyExportMarkdownTransforms(markdown: string): string {
 	let md = forceEmicChartsLightThemeForExport(markdown);
+	md = expandDetailsBlocksInMarkdown(md);
 	md = expandInlineHashtagsToAnchorLinks(md);
 	return md;
 }

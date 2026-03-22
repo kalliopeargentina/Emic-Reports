@@ -208,8 +208,10 @@ export class CssTemplateEngine {
 ${exportSyntaxCss}
 
 .ra-render-frame mark {
+	background: ${t.highlightDefaultBackground} !important;
 	border-radius: 2px !important;
 	padding: 0 0.12em !important;
+	color: var(--ra-text) !important;
 	-webkit-print-color-adjust: exact !important;
 	print-color-adjust: exact !important;
 }
@@ -311,6 +313,15 @@ ${listBulletCss}
 	border: none !important;
 	border-top: 0 solid lightgray !important;
 	page-break-after: ${hrBreak} !important;
+}
+
+/* Expanded HTML <details> (export unwraps to .ra-export-details + summary paragraph) */
+.ra-render-frame .ra-export-details {
+	margin: 0.65em 0 !important;
+}
+.ra-render-frame .ra-export-details-summary {
+	font-weight: bold !important;
+	margin: 0 0 0.35em 0 !important;
 }
 
 .ra-render-frame blockquote:not(.callout) {

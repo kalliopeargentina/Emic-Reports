@@ -10,6 +10,31 @@ function isLikelyCodeBlockWrapper(el: HTMLElement): boolean {
 	);
 }
 
+/**
+ * Replace `<details>` with always-visible content: summary becomes a bold paragraph, body stays as
+ * normal flow (print/PDF often collapse &lt;details&gt; or show disclosure UI we don't want).
+ */
+export function expandDetailsElementsForExport(root: HTMLElement): void {
+	for (const d of Array.from(root.querySelectorAll("details"))) {
+		const wrap = document.createElement("div");
+		wrap.className = "ra-export-details";
+		const sm = d.querySelector(":scope > summary");
+		if (sm) {
+			const p = document.createElement("p");
+			p.className = "ra-export-details-summary";
+			while (sm.firstChild) {
+				p.appendChild(sm.firstChild);
+			}
+			sm.remove();
+			wrap.appendChild(p);
+		}
+		while (d.firstChild) {
+			wrap.appendChild(d.firstChild);
+		}
+		d.replaceWith(wrap);
+	}
+}
+
 export function stripCodeBlockChromeForExport(root: HTMLElement): void {
 	root.querySelectorAll("pre button").forEach((b) => {
 		(b as HTMLElement).remove();

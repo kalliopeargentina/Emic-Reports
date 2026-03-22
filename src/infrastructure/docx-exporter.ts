@@ -2,7 +2,7 @@ import {
 	AlignmentType,
 	BorderStyle,
 	Bookmark,
-	Document,
+	Document as DocxDocument,
 	ExternalHyperlink,
 	FootnoteReferenceRun,
 	HeadingLevel,
@@ -394,7 +394,7 @@ export class DocxExporter {
 		);
 		const footnotesPayload = await this.buildDocxFootnotesPayload(tokens, mathSession, sourcePath);
 		const margins = this.resolveMargins(tokens);
-		const doc = new Document({
+		const doc = new DocxDocument({
 			numbering: {
 				config: this.buildNumbering(tokens) as unknown as NumberingConfig[],
 			},
@@ -1251,6 +1251,165 @@ export class DocxExporter {
 		return out;
 	}
 
+	/**
+	 * Heuristic: likely Obsidian inline HTML (MarkdownRenderer renders it in HTML/PDF; DOCX uses a DOM pass).
+	 */
+	private shouldTryInlineHtmlFragment(text: string): boolean {
+		const t = text.trim();
+		if (!t.includes("<") || !t.includes(">")) return false;
+		/* Quoted tag examples: "<details>" or '<span>' — keep as plain text, not HTML. */
+		if (
+			(t.startsWith('"') && t.endsWith('"') && t.length >= 2) ||
+			(t.startsWith("'") && t.endsWith("'") && t.length >= 2)
+		) {
+			return false;
+		}
+		if (!/<[a-zA-Z!/?]/.test(text)) return false;
+		return /^<[a-zA-Z!]/.test(t) || /<\/[a-zA-Z]/.test(text);
+	}
+
+	/**
+	 * Parse a small subset of inline HTML into docx runs (aligns with preview for tags like span, strong, br, a).
+	 * Returns null if parsing fails or produces nothing — caller falls back to Markdown.
+	 */
+	private async tryInlineHtmlFragmentRuns(
+		text: string,
+		tokens: StyleTokens,
+		mathSession: DocxMathRasterSession,
+		linkSourcePath: string,
+	): Promise<Array<TextRun | ExternalHyperlink | InternalHyperlink | ImageRun | FootnoteReferenceRun> | null> {
+		if (!this.shouldTryInlineHtmlFragment(text)) return null;
+		let parsedHtml: ReturnType<DOMParser["parseFromString"]>;
+		try {
+			parsedHtml = new DOMParser().parseFromString(
+				`<div class="ra-docx-html-root">${text}</div>`,
+				"text/html",
+			);
+		} catch {
+			return null;
+		}
+		if (parsedHtml.querySelector("parsererror")) return null;
+		const root = parsedHtml.querySelector(".ra-docx-html-root");
+		if (!root) return null;
+		type HtmlInlineStyle = {
+			bold?: boolean;
+			italic?: boolean;
+			mono?: boolean;
+			/** Inside `<a href>`: use export link colors for body text runs. */
+			anchorLinkKind?: "external" | "internal";
+			/** From `<mark>` — same fill as ==highlight== / PDF. */
+			highlightShading?: { type: (typeof ShadingType)[keyof typeof ShadingType]; fill: string };
+		};
+		const out: Array<TextRun | ExternalHyperlink | InternalHyperlink | ImageRun | FootnoteReferenceRun> =
+			[];
+		const appendNodes = async (
+			nodes: readonly Node[],
+			style: HtmlInlineStyle,
+			buf: typeof out,
+		): Promise<void> => {
+			for (const node of nodes) {
+				if (node.nodeType === Node.TEXT_NODE) {
+					const raw = node.textContent ?? "";
+					if (!raw) continue;
+					if (/\$|\[\^/.test(raw)) {
+						buf.push(
+							...(await this.plainSliceWithMathAsync(raw, tokens, undefined, mathSession)),
+						);
+						continue;
+					}
+					const linkKind = style.anchorLinkKind;
+					const base =
+						linkKind !== undefined
+							? this.docxExportLinkTextRunProps(tokens, linkKind, undefined)
+							: {
+									color: this.toDocxColor(tokens.colorText),
+									font: style.mono ? tokens.fontMono : tokens.fontBody,
+									size: this.ptToHalfPoint(style.mono ? tokens.codeFontSize : tokens.fontSizeBody),
+								};
+					buf.push(
+						new TextRun({
+							text: raw,
+							...base,
+							bold: style.bold,
+							italics: style.italic,
+							...(style.highlightShading ? { shading: style.highlightShading } : {}),
+						}),
+					);
+					continue;
+				}
+				if (node.nodeType !== Node.ELEMENT_NODE) continue;
+				const el = node as Element;
+				const tag = el.tagName.toLowerCase();
+				if (tag === "br") {
+					buf.push(
+						new TextRun({
+							break: 1,
+							text: "",
+							font: tokens.fontBody,
+							size: this.ptToHalfPoint(tokens.fontSizeBody),
+						}),
+					);
+					continue;
+				}
+				if (tag === "script" || tag === "style") continue;
+
+				const next: HtmlInlineStyle = { ...style };
+				if (tag === "strong" || tag === "b") next.bold = true;
+				else if (tag === "em" || tag === "i") next.italic = true;
+				else if (tag === "code" || tag === "kbd" || tag === "samp") next.mono = true;
+
+				if (tag === "mark") {
+					const fillHex = defaultHighlightCssToDocxFill(tokens.highlightDefaultBackground);
+					const markStyle: HtmlInlineStyle = {
+						...next,
+						highlightShading: { type: ShadingType.CLEAR, fill: fillHex },
+					};
+					await appendNodes(Array.from(el.childNodes), markStyle, buf);
+					continue;
+				}
+
+				if (tag === "a") {
+					const href = el.getAttribute("href")?.trim() ?? "";
+					const inner: typeof out = [];
+					if (href) {
+						const internalBm = this.tryDocxInternalBookmarkFromHref(href);
+						const lk: "external" | "internal" = internalBm ? "internal" : "external";
+						await appendNodes(
+							Array.from(el.childNodes),
+							{ ...next, anchorLinkKind: lk },
+							inner,
+						);
+						if (inner.length === 0) continue;
+						if (internalBm) {
+							buf.push(new InternalHyperlink({ anchor: internalBm, children: inner }));
+						} else {
+							const resolved = this.resolveDocxHyperlinkHref(href, linkSourcePath);
+							buf.push(new ExternalHyperlink({ link: resolved, children: inner }));
+						}
+					} else {
+						await appendNodes(Array.from(el.childNodes), next, buf);
+					}
+					continue;
+				}
+
+				await appendNodes(Array.from(el.childNodes), next, buf);
+				if (tag === "p" || tag === "div") {
+					buf.push(
+						new TextRun({
+							break: 1,
+							text: "",
+							font: tokens.fontBody,
+							size: this.ptToHalfPoint(tokens.fontSizeBody),
+						}),
+					);
+				}
+			}
+		};
+
+		await appendNodes(Array.from(root.childNodes), {}, out);
+		return out.length > 0 ? out : null;
+	}
+
 	private async inlineRunsAsync(
 		text: string,
 		tokens: StyleTokens,
@@ -1258,6 +1417,17 @@ export class DocxExporter {
 		linkSourcePath: string,
 	): Promise<Array<TextRun | ExternalHyperlink | InternalHyperlink | ImageRun | FootnoteReferenceRun>> {
 		const segs = segmentHighlightSyntax(text);
+		if (segs.length === 1 && segs[0]?.kind === "text" && segs[0].text) {
+			const htmlRuns = await this.tryInlineHtmlFragmentRuns(
+				segs[0].text,
+				tokens,
+				mathSession,
+				linkSourcePath,
+			);
+			if (htmlRuns !== null) {
+				return htmlRuns.length > 0 ? htmlRuns : [new TextRun("")];
+			}
+		}
 		const out: Array<TextRun | ExternalHyperlink | InternalHyperlink | ImageRun | FootnoteReferenceRun> =
 			[];
 		const defaultFill = defaultHighlightCssToDocxFill(tokens.highlightDefaultBackground);

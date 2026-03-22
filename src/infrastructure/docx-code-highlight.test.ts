@@ -25,4 +25,9 @@ describe("highlightCodeToDocxRuns", () => {
 		const runs = highlightCodeToDocxRuns("a\nb", "", tokens, toDocx, pt2hp);
 		expect(runs.length).toBeGreaterThanOrEqual(2);
 	});
+
+	it("produces runs for fenced html (xml highlighter)", () => {
+		const runs = highlightCodeToDocxRuns('<div class="x">hi</div>', "html", tokens, toDocx, pt2hp);
+		expect(runs.length).toBeGreaterThan(0);
+	});
 });

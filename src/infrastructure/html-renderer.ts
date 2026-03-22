@@ -18,7 +18,7 @@ import {
 	replaceMathWithRasterImages,
 	waitForMathLayout,
 } from "./math-export";
-import { stripCodeBlockChromeForExport } from "./html-export-sanitize";
+import { expandDetailsElementsForExport, stripCodeBlockChromeForExport } from "./html-export-sanitize";
 import { serializeElementHtml, waitForSvgOrCanvasDeep } from "./shadow-dom";
 
 /**
@@ -112,6 +112,7 @@ export class HtmlRenderer {
 				console.info("[HTML-preview][math] rasterized nodes=%d", mathSwap.replaced);
 			}
 			stripCodeBlockChromeForExport(host);
+			expandDetailsElementsForExport(host);
 			return serializeElementHtml(host);
 		} finally {
 			sub.unload();
