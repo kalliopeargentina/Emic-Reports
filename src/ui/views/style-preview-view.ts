@@ -5,7 +5,9 @@ import {
 	type StyleEditorTabId,
 } from "../../domain/style-editor-tab-ids";
 import type { StyleEditorState } from "../../domain/style-editor-state";
+import { mergePrintRules } from "../../domain/style-template";
 import { buildStylePreviewProject } from "../../infrastructure/style-preview-project";
+import { injectHeadingSectionNumbers } from "../../infrastructure/heading-section-numbers";
 import {
 	getStylePreviewMarkdown,
 	getStylePreviewTabTitle,
@@ -106,7 +108,9 @@ export class StylePreviewView extends ItemView {
 		try {
 			const project = buildStylePreviewProject(state);
 			const md = getStylePreviewMarkdown(activeStyleTabId);
-			const html = await this.plugin.htmlRenderer.render(project, md);
+			let html = await this.plugin.htmlRenderer.render(project, md);
+			const mode = mergePrintRules(project.styleTemplate.printRules).headingNumbering;
+			html = injectHeadingSectionNumbers(html, mode);
 			const css = this.plugin.cssTemplateEngine.build(project);
 			const doc = buildIsolatedPreviewPageDocument(project, html, css);
 			this.iframeEl.srcdoc = doc;

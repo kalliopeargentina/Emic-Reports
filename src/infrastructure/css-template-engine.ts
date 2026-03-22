@@ -481,35 +481,36 @@ ${backgroundCss}
 	}
 
 	private buildHeadingNumberingCss(mode: HeadingNumberingMode): string {
-		/** Match academic CSS: dot, space, then NBSP after section numbers */
+		/**
+		 * Numbers come from `data-ra-section` set in {@link injectHeadingSectionNumbers} on the full
+		 * HTML before pagination — same order as the TOC. CSS counters break across paginated sheets
+		 * in Chromium print/PDF (e.g. 0.1 on a page that starts with h2).
+		 */
 		const nbsp = "\u00A0";
 		const tail = `". ${nbsp}"`;
+		const excludeNonSectionHeadings = `
+body .ra-render-frame h1.ra-cover-title::before,
+body .ra-render-frame h2.ra-toc-title::before {
+	content: none !important;
+}
+`.trim();
 		if (mode === "none") return "";
 		if (mode === "h2-h4") {
 			return `
-.ra-render-frame { counter-reset: h2counter h3counter h4counter; }
-.ra-render-frame h2 { counter-increment: h2counter; counter-reset: h3counter; }
-.ra-render-frame h2::before { content: counter(h2counter) ${tail}; }
-.ra-render-frame h3 { counter-increment: h3counter; counter-reset: h4counter; }
-.ra-render-frame h3::before { content: counter(h2counter) "." counter(h3counter) ${tail}; }
-.ra-render-frame h4 { counter-increment: h4counter; }
-.ra-render-frame h4::before { content: counter(h2counter) "." counter(h3counter) "." counter(h4counter) ${tail}; }
+.ra-render-frame h2[data-ra-section]::before { content: attr(data-ra-section) ${tail}; }
+.ra-render-frame h3[data-ra-section]::before { content: attr(data-ra-section) ${tail}; }
+.ra-render-frame h4[data-ra-section]::before { content: attr(data-ra-section) ${tail}; }
+${excludeNonSectionHeadings}
 `.trim();
 		}
 		return `
-.ra-render-frame { counter-reset: h1counter h2counter h3counter h4counter h5counter h6counter; }
-.ra-render-frame h1 { counter-increment: h1counter; counter-reset: h2counter; }
-.ra-render-frame h1::before { content: counter(h1counter) ${tail}; }
-.ra-render-frame h2 { counter-increment: h2counter; counter-reset: h3counter; }
-.ra-render-frame h2::before { content: counter(h1counter) "." counter(h2counter) ${tail}; }
-.ra-render-frame h3 { counter-increment: h3counter; counter-reset: h4counter; }
-.ra-render-frame h3::before { content: counter(h1counter) "." counter(h2counter) "." counter(h3counter) ${tail}; }
-.ra-render-frame h4 { counter-increment: h4counter; counter-reset: h5counter; }
-.ra-render-frame h4::before { content: counter(h1counter) "." counter(h2counter) "." counter(h3counter) "." counter(h4counter) ${tail}; }
-.ra-render-frame h5 { counter-increment: h5counter; counter-reset: h6counter; }
-.ra-render-frame h5::before { content: counter(h1counter) "." counter(h2counter) "." counter(h3counter) "." counter(h4counter) "." counter(h5counter) ${tail}; }
-.ra-render-frame h6 { counter-increment: h6counter; }
-.ra-render-frame h6::before { content: counter(h1counter) "." counter(h2counter) "." counter(h3counter) "." counter(h4counter) "." counter(h5counter) "." counter(h6counter) ${tail}; }
+.ra-render-frame h1[data-ra-section]::before { content: attr(data-ra-section) ${tail}; }
+.ra-render-frame h2[data-ra-section]::before { content: attr(data-ra-section) ${tail}; }
+.ra-render-frame h3[data-ra-section]::before { content: attr(data-ra-section) ${tail}; }
+.ra-render-frame h4[data-ra-section]::before { content: attr(data-ra-section) ${tail}; }
+.ra-render-frame h5[data-ra-section]::before { content: attr(data-ra-section) ${tail}; }
+.ra-render-frame h6[data-ra-section]::before { content: attr(data-ra-section) ${tail}; }
+${excludeNonSectionHeadings}
 `.trim();
 	}
 

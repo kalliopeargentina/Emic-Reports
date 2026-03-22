@@ -1,10 +1,12 @@
 import type { ReportProject } from "../domain/report-project";
+import { mergePrintRules } from "../domain/style-template";
 import type { MarkdownComposer } from "../infrastructure/markdown-composer";
 import type { LinkResolver } from "../infrastructure/link-resolver";
 import type { HtmlRenderer } from "../infrastructure/html-renderer";
 import type { CssTemplateEngine } from "../infrastructure/css-template-engine";
 import type { AssetLinkTarget, AssetResolver } from "../infrastructure/asset-resolver";
 import { applyExportMarkdownTransforms } from "../infrastructure/export-markdown-transforms";
+import { injectHeadingSectionNumbers } from "../infrastructure/heading-section-numbers";
 import { buildTableOfContentsHtml, ensureHeadingIds } from "../infrastructure/toc-html";
 
 export interface PreviewBundle {
@@ -42,6 +44,8 @@ export async function generatePreview(
 		innerHtml = toc ? `${toc}\n<hr class="ra-page-break">\n${html}` : html;
 	}
 	html = prependCoverHtml(project, innerHtml);
+	const numberingMode = mergePrintRules(project.styleTemplate.printRules).headingNumbering;
+	html = injectHeadingSectionNumbers(html, numberingMode);
 	const assetTarget = options?.assetLinkTarget ?? "obsidian";
 	html = await assetResolver.resolveHtmlAssets(project, html, assetTarget);
 	const css = cssTemplateEngine.build(project);

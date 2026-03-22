@@ -1,4 +1,5 @@
-.ra-render-frame {
+/* Match export CSS: scope heading counters on body when using multi-page print sheets. */
+body {
 	counter-reset: h2counter h3counter h4counter;
 }
 
