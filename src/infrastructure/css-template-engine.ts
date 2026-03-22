@@ -29,6 +29,10 @@ export class CssTemplateEngine {
 		const calloutCss = this.buildCalloutCss(t);
 		const exportSyntaxCss = `${buildExportHljsCss()}\n${buildExportCodeBlockChromeHideCss()}`;
 
+		const bqBarWidthCss = t.blockquoteShowVerticalBar ? `${t.blockquoteBarWidthPx}px` : "0px";
+		const bqNestedBarWidthPx = Math.max(2, t.blockquoteBarWidthPx - 1);
+		const bqNestedBarWidthCss = t.blockquoteShowVerticalBar ? `${bqNestedBarWidthPx}px` : "0px";
+
 		const listBulletCss = t.listCustomBullet
 			? `
 .ra-render-frame ul li {
@@ -68,6 +72,16 @@ export class CssTemplateEngine {
 	--ra-export-link-external-underline: ${t.exportLinkExternalUnderline ? 1 : 0};
 	--ra-export-link-internal-color: ${t.exportLinkInternalColor};
 	--ra-export-link-internal-underline: ${t.exportLinkInternalUnderline ? 1 : 0};
+	/* Blockquote (HTML/PDF); mirrors style template tokens */
+	--ra-blockquote-text-align: ${t.blockquoteTextAlign};
+	--ra-blockquote-font-size: ${t.blockquoteFontSize}pt;
+	--ra-blockquote-margin-y: ${t.blockquoteMarginY}px;
+	--ra-blockquote-italic: ${t.blockquoteItalic ? 1 : 0};
+	--ra-blockquote-font-style: ${t.blockquoteItalic ? "italic" : "normal"};
+	--ra-blockquote-bar-visible: ${t.blockquoteShowVerticalBar ? 1 : 0};
+	--ra-blockquote-bar: ${t.blockquoteBarColor};
+	--ra-blockquote-bar-width: ${bqBarWidthCss};
+	--ra-blockquote-nested-bar-width: ${bqNestedBarWidthCss};
 }
 
 .ra-render-frame {
@@ -301,12 +315,38 @@ ${listBulletCss}
 
 .ra-render-frame blockquote:not(.callout) {
 	display: block !important;
-	text-align: ${t.blockquoteTextAlign} !important;
-	font-size: ${t.blockquoteFontSize}pt !important;
+	text-align: var(--ra-blockquote-text-align) !important;
+	font-size: var(--ra-blockquote-font-size) !important;
 	color: var(--ra-text) !important;
 	border: none !important;
-	padding: 0 !important;
-	margin: ${t.blockquoteMarginY}px auto !important;
+	border-left: ${t.blockquoteShowVerticalBar ? "var(--ra-blockquote-bar-width) solid var(--ra-blockquote-bar)" : "none"} !important;
+	padding: 0.35em 0.65em 0.35em 0.95em !important;
+	margin: var(--ra-blockquote-margin-y) 0 !important;
+	font-style: var(--ra-blockquote-font-style) !important;
+	box-sizing: border-box !important;
+}
+.ra-render-frame blockquote:not(.callout) blockquote:not(.callout) {
+	margin-top: 0.45em !important;
+	margin-bottom: 0.3em !important;
+	margin-left: 0 !important;
+	margin-right: 0 !important;
+	padding-left: 0.85em !important;
+	${t.blockquoteShowVerticalBar
+		? `border-left: var(--ra-blockquote-nested-bar-width) solid color-mix(in srgb, ${t.blockquoteBarColor} 78%, #ffffff) !important;`
+		: "border-left: none !important;"}
+}
+.ra-render-frame blockquote:not(.callout) > p {
+	margin: 0.22em 0 !important;
+}
+.ra-render-frame blockquote:not(.callout) > p:first-child {
+	margin-top: 0 !important;
+}
+.ra-render-frame blockquote:not(.callout) > p:last-child {
+	margin-bottom: 0 !important;
+}
+.ra-render-frame blockquote:not(.callout) code,
+.ra-render-frame blockquote:not(.callout) pre {
+	font-style: normal !important;
 }
 
 ${calloutCss}

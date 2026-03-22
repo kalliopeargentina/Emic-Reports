@@ -737,7 +737,7 @@ export function renderAcademicStyleControls(
 				.onChange((v) => patchTokens({ listIndentPerLevel: v })),
 		);
 
-	sectionHeading(container, "Blockquote and diagrams");
+	sectionHeading(container, "Blockquotes");
 	new Setting(container)
 		.setName("Blockquote alignment")
 		.addDropdown((dropdown) => {
@@ -764,6 +764,53 @@ export function renderAcademicStyleControls(
 				.setDynamicTooltip()
 				.onChange((v) => patchTokens({ blockquoteMarginY: v })),
 		);
+	new Setting(container)
+		.setName("Blockquote italic body")
+		.setDesc("Typical for quoted passages in print (HTML/PDF).")
+		.addToggle((toggle) => toggle.setValue(t.blockquoteItalic).onChange((v) => patchTokens({ blockquoteItalic: v })));
+	new Setting(container)
+		.setName("Show vertical side bar")
+		.setDesc("Left rule in HTML/PDF; paragraph border in DOCX. When off, only indent and typography apply.")
+		.addToggle((toggle) =>
+			toggle.setValue(t.blockquoteShowVerticalBar).onChange((v) => patchTokens({ blockquoteShowVerticalBar: v })),
+		);
+	new Setting(container)
+		.setName("Side bar color")
+		.setDesc("Ignored when the side bar is hidden.")
+		.addColorPicker((picker) =>
+			picker.setValue(t.blockquoteBarColor).onChange((v) => patchTokens({ blockquoteBarColor: v })),
+		);
+	new Setting(container)
+		.setName("Side bar width (px)")
+		.setDesc("Ignored when the side bar is hidden.")
+		.addSlider((slider) =>
+			slider
+				.setLimits(1, 8, 1)
+				.setValue(t.blockquoteBarWidthPx)
+				.setDynamicTooltip()
+				.onChange((v) => patchTokens({ blockquoteBarWidthPx: v })),
+		);
+	new Setting(container)
+		.setName("Nested quote indent (pt)")
+		.setDesc("Extra left indent per `>` level in Word export.")
+		.addSlider((slider) =>
+			slider
+				.setLimits(6, 28, 1)
+				.setValue(t.blockquoteNestedIndentPt)
+				.setDynamicTooltip()
+				.onChange((v) => patchTokens({ blockquoteNestedIndentPt: v })),
+		);
+	new Setting(container)
+		.setName("Blockquote CSS (:root)")
+		.setDesc(
+			"Alignment, size, margin, italic, and bar settings map to exported HTML/PDF CSS. Variables: " +
+				"--ra-blockquote-text-align, --ra-blockquote-font-size, --ra-blockquote-margin-y, " +
+				"--ra-blockquote-italic, --ra-blockquote-font-style, --ra-blockquote-bar-visible, " +
+				"--ra-blockquote-bar, --ra-blockquote-bar-width, --ra-blockquote-nested-bar-width. " +
+				"Rules use .ra-render-frame blockquote:not(.callout). Inspect preview or exported HTML :root for values.",
+		);
+
+	sectionHeading(container, "Diagrams");
 	new Setting(container)
 		.setName("Mermaid diagram color")
 		.addColorPicker((picker) =>

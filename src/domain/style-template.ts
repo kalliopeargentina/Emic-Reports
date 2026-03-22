@@ -154,6 +154,16 @@ export interface StyleTokens {
 	blockquoteTextAlign: TextAlignOption;
 	blockquoteFontSize: number;
 	blockquoteMarginY: number;
+	/** Left vertical rule (HTML/PDF/DOCX). */
+	blockquoteBarColor: string;
+	/** Rule thickness in px (HTML); mapped to DOCX border size. */
+	blockquoteBarWidthPx: number;
+	/** Italic body for print-style quotations (HTML/PDF). */
+	blockquoteItalic: boolean;
+	/** Extra first-line left indent per nested `>` in DOCX (twips from pt). */
+	blockquoteNestedIndentPt: number;
+	/** Left vertical rule in HTML/PDF/DOCX; off = indent and typography only. */
+	blockquoteShowVerticalBar: boolean;
 
 	/* --- Mermaid --- */
 	mermaidColor: string;
@@ -302,9 +312,14 @@ export const DEFAULT_STYLE_TOKENS: StyleTokens = {
 	listBulletTopOffset: "-0.05em",
 	listIndentPerLevel: 14,
 
-	blockquoteTextAlign: "center",
+	blockquoteTextAlign: "left",
 	blockquoteFontSize: 10,
-	blockquoteMarginY: 5,
+	blockquoteMarginY: 6,
+	blockquoteBarColor: "#555555",
+	blockquoteBarWidthPx: 3,
+	blockquoteItalic: true,
+	blockquoteNestedIndentPt: 14,
+	blockquoteShowVerticalBar: true,
 
 	mermaidColor: "#000000",
 

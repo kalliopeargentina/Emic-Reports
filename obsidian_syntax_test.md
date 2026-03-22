@@ -1,11 +1,11 @@
 ---
-aliases: []
+
+## aliases: []
 tags: [obsidian, markdown, productivity/notes, tools/writing]
 read:
 date created: jueves, marzo 19º 2026, 10:56:09 pm
 date modified: viernes, marzo 20º 2026, 1:37:08 pm
----
-																																																																																																																																																																																									
+
 # 🧪 Obsidian Syntax Test File
 
 > [!NOTE]
@@ -34,21 +34,26 @@ date modified: viernes, marzo 20º 2026, 1:37:08 pm
 ## Headings
 
 # Heading 1
+
 ## Heading 2
+
 ### Heading 3
+
 #### Heading 4
+
 ##### Heading 5
+
 ###### Heading 6
 
 ---
 
 ## Text Formatting
 
-**Bold text** and __also bold__
+**Bold text** and **also bold**
 
-*Italic text* and _also italic_
+*Italic text* and *also italic*
 
-***Bold and italic*** and ___also bold italic___
+***Bold and italic*** and ***also bold italic***
 
 ~~Strikethrough text~~
 
@@ -65,8 +70,10 @@ Use two spaces at end of line or a blank line for new paragraphs.
 > It can span multiple lines.
 
 > Nested blockquote level 1
->> Nested blockquote level 2
->>> Nested blockquote level 3
+>
+> > Nested blockquote level 2
+> >
+> > > Nested blockquote level 3
 
 ---
 
@@ -81,39 +88,39 @@ Use two spaces at end of line or a blank line for new paragraphs.
     - Deeply nested item
 - Item three
 
-* Asterisk list item
-* Another asterisk item
+- Asterisk list item
+- Another asterisk item
 
-+ Plus list item
-+ Another plus item
+- Plus list item
+- Another plus item
 
 ### Ordered Lists
 
 1. First item
 2. Second item
-   1. Nested ordered item
-   2. Another nested item
+  1. Nested ordered item
+  2. Another nested item
 3. Third item
 
 ### Mixed Lists
 
 1. Ordered item one
-   - Unordered nested
-   - Another unordered nested
+  - Unordered nested
+  - Another unordered nested
 2. Ordered item two
-   - More nesting
-     1. Back to ordered
+  - More nesting
+  1. Back to ordered
 
 ---
 
 ## Tasks
 
-- [ ] Uncompleted task
-- [x] Completed task
-- [ ] Another pending task
-  - [ ] Nested subtask
-  - [x] Completed subtask
-- [x] All done!
+- Uncompleted task
+- Completed task
+- Another pending task
+  - Nested subtask
+  - Completed subtask
+- All done!
 
 ---
 
@@ -123,9 +130,9 @@ Use two spaces at end of line or a blank line for new paragraphs.
 
 [Obsidian website](https://obsidian.md)
 
-[Link with title](https://obsidian.md "Obsidian - A second brain")
+[Link with title](https://obsidian.md)
 
-Raw URL: https://obsidian.md
+Raw URL: [https://obsidian.md](https://obsidian.md)
 
 ### Internal (Wiki) Links
 
@@ -141,18 +148,21 @@ Raw URL: https://obsidian.md
 
 ### Images
 
-![Obsidian Logo|301x301](https://obsidian.md/images/obsidian-logo-gradient.svg)
+Obsidian Logo|301x301
 ![[50-504125_1920x1080-periodic-table-wallpaper-photos-for-mobile-periodic.jpg|546|372x269]]
+
 # Section Heading
 
 test embeddd
 
 
-| País | PBI |
-| ---- | --- |
-| ARG  | 100 |
-| BRA  | 200 |
-^tabla-1
+| País     | PBI |
+| -------- | --- |
+| ARG      | 100 |
+| BRA      | 200 |
+| ^tabla-1 |     |
+
+
 ```emic-charts-view
 #-----------------#
 #- chart type    -#
@@ -182,31 +192,37 @@ options:
 
 ## Tables
 
+
 | Column A | Column B | Column C |
-|----------|----------|----------|
+| -------- | -------- | -------- |
 | Cell 1   | Cell 2   | Cell 3   |
 | Cell 4   | Cell 5   | Cell 6   |
-^tabla-3
+| ^tabla-3 |          |          |
+
 
 ### Aligned Columns
 
+
 | Left aligned | Center aligned | Right aligned |
-|:-------------|:--------------:|--------------:|
-| Apple        |     Banana     |        Cherry |
-| Dog          |      Cat       |         Bird  |
-| 100          |      200       |           300 |
-^tabla-2
+| ------------ | -------------- | ------------- |
+| Apple        | Banana         | Cherry        |
+| Dog          | Cat            | Bird          |
+| 100          | 200            | 300           |
+| ^tabla-2     |                |               |
+
 
 ### Complex Table
 
-| Feature        | Obsidian | Notion | Roam |
-|----------------|:--------:|:------:|:----:|
-| Local storage  | ✅        | ❌      | ❌    |
-| Graph view     | ✅        | ❌      | ✅    |
-| Plugin system  | ✅        | ✅      | ❌    |
-| Free tier      | ✅        | ✅      | ❌    |
-| Markdown       | ✅        | ⚠️      | ⚠️   |
-^tabla-1
+
+| Feature       | Obsidian | Notion | Roam |
+| ------------- | -------- | ------ | ---- |
+| Local storage | ✅        | ❌      | ❌    |
+| Graph view    | ✅        | ❌      | ✅    |
+| Plugin system | ✅        | ✅      | ❌    |
+| Free tier     | ✅        | ✅      | ❌    |
+| Markdown      | ✅        | ⚠️     | ⚠️   |
+| ^tabla-1      |          |        |      |
+
 
 ---
 
@@ -315,7 +331,6 @@ LIMIT 10;
 > [!BUG]
 > This is a **bug** callout. Found an issue!
 
-
 > [!EXAMPLE]
 > This is an **example** callout with a demonstration.
 
@@ -331,6 +346,7 @@ LIMIT 10;
 
 > [!INFO] Outer callout
 > Some outer content.
+>
 > > [!WARNING] Inner callout
 > > Nested warning inside the info block.
 
@@ -347,21 +363,21 @@ Euler's identity: $e^{i\pi} + 1 = 0$  shows something interesting
 ### Block Math
 
 $$
-\int_{-\infty}^{\infty} e^{-x^2} \, dx = \sqrt{\pi}
+\int_{-\infty}^{\infty} e^{-x^2}  dx = \sqrt{\pi}
 $$
 
-$$
-\begin{pmatrix}
-a & b \\
-c & d
+# $$  
+\begin{pmatrix}  
+a & b   
+c & d  
+\end{pmatrix}  
+\begin{pmatrix}  
+e & f   
+g & h  
 \end{pmatrix}
+
 \begin{pmatrix}
-e & f \\
-g & h
-\end{pmatrix}
-=
-\begin{pmatrix}
-ae+bg & af+bh \\
+ae+bg & af+bh 
 ce+dg & cf+dh
 \end{pmatrix}
 $$
@@ -434,6 +450,8 @@ flowchart TD
     G --> H([End])
 ```
 
+
+
 ### Sequence Diagram
 
 ```mermaid
@@ -452,6 +470,8 @@ sequenceDiagram
     Obsidian-->>User: Note created
 ```
 
+
+
 ### Gantt Chart
 
 ```mermaid
@@ -467,6 +487,8 @@ gantt
     section Review
     Weekly review          :         review, 2024-01-31, 5d
 ```
+
+
 
 ### Class Diagram
 
@@ -498,6 +520,8 @@ classDiagram
     Vault "1" --> "many" Plugin : uses
 ```
 
+
+
 ### Pie Chart
 
 ```mermaid
@@ -509,12 +533,13 @@ pie title Note Types in My Vault
     "Archive" : 5
 ```
 
+
+
 ---
 
 ## HTML
 
-<details>
-<summary>Click to expand HTML details block</summary>
+Click to expand HTML details block
 
 This content is hidden inside a `<details>` tag.  
 You can use **Markdown** inside here too.
@@ -522,15 +547,16 @@ You can use **Markdown** inside here too.
 - Item one
 - Item two
 
-</details>
 
-<br>
 
-<mark>This text is highlighted using HTML mark tag.</mark>
+  
 
-<kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>P</kbd> opens the command palette.
 
-<sup>Superscript text</sup> and <sub>subscript text</sub>
+This text is highlighted using HTML mark tag.
+
+Ctrl + Shift + P opens the command palette.
+
+Superscript text and subscript text
 
 ---
 
@@ -540,19 +566,19 @@ Three ways to make a horizontal rule:
 
 ---
 
-***
+---
 
-___
+---
 
 ---
 
 ## Special Characters & Escaping
 
-Escaped asterisk: \*not italic\*
+Escaped asterisk: not italic
 
-Escaped brackets: \[\[not a wikilink\]\]
+Escaped brackets: not a wikilink
 
-Escaped hashtag: \#not-a-tag
+Escaped hashtag: not-a-tag
 
 Unicode: 🚀 ⭐ 📝 🔗 💡 🎯 ✅ ❌ ⚠️ 🔒
 

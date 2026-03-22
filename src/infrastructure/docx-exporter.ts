@@ -604,13 +604,30 @@ export class DocxExporter {
 				continue;
 			}
 
-			const quoteMatch = /^>\s?(.+)$/.exec(trimmed);
-			if (quoteMatch) {
-				const quoteText = quoteMatch[1] ?? "";
+			const qDepth = countQuoteDepth(line);
+			if (qDepth > 0) {
+				const inner = stripQuoteLevels(line, qDepth).trimEnd();
+				const displayText = inner.length > 0 ? inner : "\u00a0";
+				const barEighths = Math.max(6, Math.min(48, Math.round(tokens.blockquoteBarWidthPx * 6)));
+				const barColor = this.toDocxColor(tokens.blockquoteBarColor);
+				const noneSide = { style: BorderStyle.NONE, size: 0, color: "FFFFFF" } as const;
+				const basePadTwips = this.ptToTwips(10);
+				const nestTwips = this.ptToTwips(tokens.blockquoteNestedIndentPt);
+				const indentLeft = basePadTwips + (qDepth - 1) * nestTwips;
+				const border = tokens.blockquoteShowVerticalBar
+					? {
+							left: { style: BorderStyle.SINGLE, size: barEighths, color: barColor },
+							top: noneSide,
+							right: noneSide,
+							bottom: noneSide,
+						}
+					: undefined;
 				output.push(
 					new Paragraph({
-						children: await this.inlineRunsAsync(quoteText, tokens, mathSession, linkSourcePath),
+						children: await this.inlineRunsAsync(displayText, tokens, mathSession, linkSourcePath),
 						alignment: this.toAlignment(tokens.blockquoteTextAlign),
+						indent: { left: indentLeft },
+						...(border ? { border } : {}),
 						spacing: {
 							before: this.ptToTwips(tokens.blockquoteMarginY),
 							after: this.ptToTwips(tokens.blockquoteMarginY),
