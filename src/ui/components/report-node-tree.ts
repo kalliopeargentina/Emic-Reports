@@ -1,6 +1,14 @@
 import { setIcon } from "obsidian";
 import type { ReportNode } from "../../domain/report-project";
 
+/** Label in the structure list (no export — composer uses note body only). */
+function reportNodeListLabel(node: ReportNode): string {
+	const o = node.titleOverride?.trim();
+	if (o) return o;
+	const last = node.notePath.split("/").filter(Boolean).pop() ?? node.notePath;
+	return last.replace(/\.md$/i, "");
+}
+
 export class ReportNodeTree {
 	private draggedNodeId: string | null = null;
 
@@ -23,7 +31,7 @@ export class ReportNodeTree {
 
 				const dragHandle = row.createSpan({ cls: "ra-node-handle" });
 				setIcon(dragHandle, "grip-vertical");
-				row.createSpan({ text: node.titleOverride || node.notePath, cls: "ra-node-title" });
+				row.createSpan({ text: reportNodeListLabel(node), cls: "ra-node-title" });
 
 				const includeToggle = row.createEl("input", { type: "checkbox" });
 				includeToggle.checked = node.include;

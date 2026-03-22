@@ -161,7 +161,6 @@ export class ReportArchitectView extends ItemView {
 				const nextNode: ReportNode = {
 					id: globalThis.crypto?.randomUUID?.() ?? `node-${Date.now()}`,
 					notePath: activeFile.path,
-					titleOverride: activeFile.basename,
 					order: project.nodes.length + 1,
 					include: true,
 					pageBreakBefore: false,
@@ -258,7 +257,6 @@ export class ReportArchitectView extends ItemView {
 			const nextNode: ReportNode = {
 				id: globalThis.crypto?.randomUUID?.() ?? `node-${Date.now()}-${order}`,
 				notePath: file.path,
-				titleOverride: file.basename,
 				order,
 				include: true,
 				pageBreakBefore: false,

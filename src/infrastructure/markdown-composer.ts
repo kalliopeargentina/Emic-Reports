@@ -21,13 +21,10 @@ export class MarkdownComposer {
 
 		const raw = await this.app.vault.read(file);
 		const cleaned = this.shouldIncludeFrontmatter() ? raw : this.removeYamlFrontmatter(raw);
-		const text = node.titleOverride?.trim()
-			? this.removeLeadingDuplicateHeading(cleaned, node.titleOverride.trim())
-			: cleaned;
+		const text = cleaned;
 		const lines: string[] = [];
 
 		if (node.pageBreakBefore) lines.push("---");
-		if (node.titleOverride?.trim()) lines.push(`# ${node.titleOverride.trim()}`);
 		if (node.indentLevel > 0) {
 			const prefix = " ".repeat(node.indentLevel * 2);
 			lines.push(
@@ -50,15 +47,5 @@ export class MarkdownComposer {
 
 	private removeYamlFrontmatter(content: string): string {
 		return content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
-	}
-
-	private removeLeadingDuplicateHeading(content: string, titleOverride: string): string {
-		const headingMatch = content.match(/^\s*#\s+(.+)\r?\n?/);
-		if (!headingMatch) return content;
-		const firstHeading = (headingMatch[1] ?? "").trim();
-		if (firstHeading.localeCompare(titleOverride, undefined, { sensitivity: "base" }) !== 0) {
-			return content;
-		}
-		return content.replace(/^\s*#\s+.+\r?\n?/, "");
 	}
 }
